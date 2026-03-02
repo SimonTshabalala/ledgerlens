@@ -1,0 +1,5 @@
+{
+    "name": "LedgerLens",
+    "image": "mcr.microsoft.com/devcontainer/python:3.11",
+    "postCreateCommand": "pip install -r backend/requirements.txt"
+}
