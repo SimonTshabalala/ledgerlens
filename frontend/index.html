@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+<meta charset="UTF-8">
+<title>LedgerLens Dashboard</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+
+<h1>LedgerLens Fraud Detection Dashboard</h1>
+
+<form id="uploadForm">
+
+<label>Select Transaction CSV</label>
+<br><br>
+
+<input type="file" id="fileInput" accept=".csv" required>
+
+<br><br>
+
+<label>Duplicate Window (Days)</label>
+<br>
+
+<input type="number" id="windowInput" placeholder="7">
+
+<br><br>
+
+<button type="submit">Analyze Transactions</button>
+
+</form>
+
+<hr>
+
+<h2>Flagged Transactions</h2>
+
+<table id="resultsTable">
+
+<thead>
+
+<tr>
+<th onclick="sortTable(0)">Date</th>
+<th onclick="sortTable(1)">Vendor</th>
+<th onclick="sortTable(2)">Amount</th>
+<th onclick="sortTable(3)">Risk Score</th>
+</tr>
+
+</thead>
+
+<tbody id="resultsBody">
+
+</tbody>
+
+</table>
+
+<script src="app.js"></script>
+
+</body>
+</html>

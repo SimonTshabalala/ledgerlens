@@ -2,52 +2,130 @@ from fastapi import FastAPI, UploadFile, File
 import pandas as pd
 from io import StringIO
 
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime
+from sqlalchemy.orm import sessionmaker, declarative_base, Session
+
+import datetime
+
+# -------------------- DATABASE SETUP --------------------
+
+DATABASE_URL = "sqlite:///./ledgerlens.db"
+
+engine = create_engine(
+    DATABASE_URL, connect_args={"check_same_thread": False}
+)
+
+SessionLocal = sessionmaker(bind=engine)
+
+Base = declarative_base()
+
+
+class Transaction(Base):
+    __tablename__ = "transactions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    date = Column(DateTime)
+    vendor = Column(String)
+    amount = Column(Float)
+    risk_score = Column(Integer)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+Base.metadata.create_all(bind=engine)
+
+# -------------------- APP --------------------
+
 app = FastAPI()
+
 
 @app.get("/")
 def root():
     return {"message": "LedgerLens API running"}
 
+
+# -------------------- UPLOAD ENDPOINT --------------------
+
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...), window_days: int = 7):
-    """
-    Upload CSV and detect duplicate vendor+amount transactions within a date window.
-    window_days: how many days to look back for duplicates
-    """
+
     contents = await file.read()
-    s = str(contents, 'utf-8')
-    df = pd.read_csv(StringIO(s))
-    
+
+    # Convert CSV to pandas DataFrame
+    df = pd.read_csv(StringIO(contents.decode("utf-8")))
+
     if df.empty:
-        return {"error": "Uploaded file is empty"}
-    
-    # Standardize column names
+        return {"error": "Empty file"}
+
+    # Normalize column names
     df.columns = df.columns.str.lower()
-    required = {"date", "amount", "vendor"}
-    if not required.issubset(set(df.columns)):
-        return {"error": "CSV must contain date, amount, vendor columns"}
-    
-    # Convert date to datetime
+
+    # Validate columns
+    if not {"date", "amount", "vendor"}.issubset(df.columns):
+        return {"error": "CSV must contain date, amount, vendor"}
+
+    # Convert data types
     df["date"] = pd.to_datetime(df["date"])
-    
-    # Sort for logic
+    df["amount"] = pd.to_numeric(df["amount"], errors="coerce")
+
+    # Remove invalid rows
+    df = df.dropna(subset=["amount"])
+
+    # Initialize risk score
+    df["risk_score"] = 0
+
+    # ---------------- RULE 1: DUPLICATES ----------------
     df = df.sort_values(by=["vendor", "amount", "date"])
-    
-    # Flag duplicates within the window
-    flagged_rows = []
+
     for vendor in df["vendor"].unique():
         vendor_df = df[df["vendor"] == vendor]
-        # Check each transaction against all previous transactions within window
+
         for i, row in vendor_df.iterrows():
-            mask = (vendor_df["date"] >= row["date"] - pd.Timedelta(days=window_days)) & \
-                   (vendor_df["date"] <= row["date"] + pd.Timedelta(days=window_days)) & \
-                   (vendor_df["amount"] == row["amount"]) & \
-                   (vendor_df.index != i)
+            mask = (
+                (vendor_df["amount"] == row["amount"]) &
+                (vendor_df["date"] >= row["date"] - pd.Timedelta(days=window_days)) &
+                (vendor_df["date"] <= row["date"] + pd.Timedelta(days=window_days)) &
+                (vendor_df.index != i)
+            )
+
             if vendor_df[mask].shape[0] > 0:
-                flagged_rows.append(row.to_dict())
-    
+                df.loc[i, "risk_score"] += 40
+
+    # ---------------- RULE 2: LARGE ANOMALY ----------------
+    stats = df.groupby("vendor")["amount"].agg(["mean", "std"])
+
+    for i, row in df.iterrows():
+        vendor = row["vendor"]
+
+        if vendor in stats.index:
+            mean = stats.loc[vendor, "mean"]
+            std = stats.loc[vendor, "std"]
+
+            if std > 0 and row["amount"] > mean + (3 * std):
+                df.loc[i, "risk_score"] += 30
+
+    # ---------------- RULE 3: ROUND NUMBERS ----------------
+    df.loc[df["amount"] % 1000 == 0, "risk_score"] += 10
+
+    # ---------------- SAVE TO DATABASE ----------------
+    db: Session = SessionLocal()
+
+    for _, row in df.iterrows():
+        transaction = Transaction(
+            date=row["date"],
+            vendor=row["vendor"],
+            amount=float(row["amount"]),
+            risk_score=int(row["risk_score"])
+        )
+        db.add(transaction)
+
+    db.commit()
+    db.close()
+
+    # ---------------- RETURN FLAGGED ----------------
+    flagged = df[df["risk_score"] > 0]
+
     return {
         "total_transactions": len(df),
-        "flagged_count": len(flagged_rows),
-        "flagged_transactions": flagged_rows
+        "flagged_count": len(flagged),
+        "flagged_transactions": flagged.to_dict(orient="records")
     }
