@@ -1,7 +1,7 @@
 from fastapi import FastAPI, UploadFile, File
 import pandas as pd
 from io import StringIO
-
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, func
 from sqlalchemy.orm import sessionmaker, declarative_base, Session
 
@@ -36,7 +36,13 @@ Base.metadata.create_all(bind=engine)
 # -------------------- APP --------------------
 
 app = FastAPI()
-
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # allow all (fine for now)
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/")
 def root():
