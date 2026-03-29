@@ -1,18 +1,24 @@
 const API_URL = "https://fluffy-parakeet-pjgqvv9pp7jc9p4w-8000.app.github.dev";
 
+function showLoading() {
+    document.getElementById("results").innerHTML = "Loading...";
+}
 function loadAll() {
+    showLoading();
     fetch(API_URL + "/transactions")
         .then(res => res.json())
         .then(data => renderDashboard(data));
 }
 
 function loadHighRisk() {
+    showLoading();
     fetch(API_URL + "/high-risk")
         .then(res => res.json())
         .then(data => renderDashboard(data));
 }
 
 function loadVendors() {
+    showLoading();
     fetch(API_URL + "/vendors")
         .then(res => res.json())
         .then(data => renderVendorStats(data));

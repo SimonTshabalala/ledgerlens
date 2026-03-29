@@ -8,21 +8,30 @@
 
 <body>
 
-<div class="container">
+<div class="layout">
 
-    <h1>LedgerLens</h1>
-    <p class="subtitle">Financial Anomaly Detection System</p>
-
-    <div class="controls">
+    <!-- Sidebar -->
+    <div class="sidebar">
+        <h2>LedgerLens</h2>
         <button onclick="loadAll()">All Transactions</button>
         <button onclick="loadHighRisk()">High Risk</button>
-        <button onclick="loadVendors()">Vendor Stats</button>
+        <button onclick="loadVendors()">Vendors</button>
     </div>
 
-    <div id="stats" class="stats"></div>
-    <canvas id="chartCanvas" height="100"></canvas>
+    <!-- Main -->
+    <div class="main">
 
-    <div id="results" class="table-container"></div>
+        <div class="header">
+            <h1>Dashboard</h1>
+        </div>
+
+        <div id="stats" class="stats"></div>
+
+        <canvas id="chartCanvas"></canvas>
+
+        <div id="results" class="table-container"></div>
+
+    </div>
 
 </div>
 

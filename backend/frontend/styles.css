@@ -1,46 +1,65 @@
 body {
     margin: 0;
     font-family: 'Segoe UI', sans-serif;
-    background: linear-gradient(135deg, #0f172a, #020617);
+    background: #020617;
     color: white;
 }
 
-.container {
-    padding: 40px;
+/* Layout */
+.layout {
+    display: flex;
+    height: 100vh;
 }
 
-h1 {
-    font-size: 40px;
-    margin-bottom: 5px;
+/* Sidebar */
+.sidebar {
+    width: 220px;
+    background: rgba(255,255,255,0.03);
+    backdrop-filter: blur(20px);
+    padding: 20px;
+    border-right: 1px solid rgba(255,255,255,0.05);
 }
 
-.subtitle {
-    color: #94a3b8;
+.sidebar h2 {
     margin-bottom: 30px;
 }
 
-/* Controls */
-.controls button {
-    margin-right: 10px;
-    padding: 10px 20px;
+.sidebar button {
+    display: block;
+    width: 100%;
+    margin-bottom: 10px;
+    padding: 12px;
+    background: transparent;
     border: none;
-    background: rgba(255,255,255,0.05);
-    color: white;
-    border-radius: 10px;
+    color: #94a3b8;
+    text-align: left;
     cursor: pointer;
-    backdrop-filter: blur(10px);
+    border-radius: 10px;
     transition: 0.3s;
 }
 
-.controls button:hover {
-    background: rgba(255,255,255,0.15);
+.sidebar button:hover {
+    background: rgba(255,255,255,0.08);
+    color: white;
 }
 
-/* Stats cards */
+/* Main */
+.main {
+    flex: 1;
+    padding: 30px;
+    overflow-y: auto;
+}
+
+/* Header */
+.header h1 {
+    margin-bottom: 20px;
+}
+
+/* Stats */
 .stats {
     display: flex;
     gap: 20px;
-    margin: 30px 0;
+    margin-bottom: 20px;
 }
 
 .card {
@@ -48,25 +67,27 @@ h1 {
     padding: 20px;
     border-radius: 15px;
     background: rgba(255,255,255,0.05);
-    backdrop-filter: blur(15px);
-    box-shadow: 0 0 20px rgba(0,0,0,0.5);
+    backdrop-filter: blur(20px);
+    transition: transform 0.2s;
 }
 
-.card h3 {
-    margin: 0;
-    font-size: 18px;
-    color: #94a3b8;
+.card:hover {
+    transform: translateY(-5px);
 }
 
-.card p {
-    font-size: 28px;
-    margin-top: 10px;
+/* Chart */
+canvas {
+    background: rgba(255,255,255,0.03);
+    padding: 15px;
+    border-radius: 15px;
+    margin-bottom: 20px;
 }
 
 /* Table */
 .table-container {
-    margin-top: 20px;
-    overflow-x: auto;
+    background: rgba(255,255,255,0.03);
+    padding: 15px;
+    border-radius: 15px;
 }
 
 table {
@@ -75,28 +96,17 @@ table {
 }
 
 th, td {
-    padding: 12px;
-    text-align: left;
+    padding: 10px;
 }
 
 th {
-    background: rgba(255,255,255,0.05);
+    color: #94a3b8;
 }
 
-tr {
-    transition: 0.3s;
-}
-
-/* Risk glow */
-.low {
-    background-color: rgba(34,197,94,0.1);
-}
-
-.medium {
-    background-color: rgba(251,191,36,0.1);
-}
-
+/* Risk styles */
+.low { background: rgba(34,197,94,0.1); }
+.medium { background: rgba(251,191,36,0.1); }
 .high {
-    background-color: rgba(239,68,68,0.2);
-    box-shadow: 0 0 10px rgba(239,68,68,0.5);
+    background: rgba(239,68,68,0.2);
+    box-shadow: 0 0 10px rgba(239,68,68,0.4);
 }
