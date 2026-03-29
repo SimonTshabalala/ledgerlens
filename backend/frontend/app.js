@@ -1,4 +1,4 @@
-const API_URL = "https://YOUR-CODESPACE-NAME-8000.app.github.dev";
+const API_URL = "https://fluffy-parakeet-pjgqvv9pp7jc9p4w-8000.app.github.dev";
 
 function loadAll() {
     fetch(API_URL + "/transactions")
@@ -17,6 +17,8 @@ function loadVendors() {
         .then(res => res.json())
         .then(data => renderVendorStats(data));
 }
+
+let chartInstance = null;
 
 function renderDashboard(data) {
 
@@ -43,7 +45,34 @@ function renderDashboard(data) {
         </div>
     `;
 
-    // Table
+    // -------- CHART DATA --------
+    const vendors = {};
+    data.forEach(t => {
+        vendors[t.vendor] = (vendors[t.vendor] || 0) + t.amount;
+    });
+
+    const labels = Object.keys(vendors);
+    const values = Object.values(vendors);
+
+    const ctx = document.getElementById("chartCanvas").getContext("2d");
+
+    if (chartInstance) chartInstance.destroy();
+
+    chartInstance = new Chart(ctx, {
+        type: "bar",
+        data: {
+            labels: labels,
+            datasets: [{
+                label: "Spend per Vendor",
+                data: values
+            }]
+        },
+        options: {
+            responsive: true
+        }
+    });
+
+    // -------- TABLE --------
     let html = "<table><tr>";
 
     const headers = Object.keys(data[0]);
@@ -61,43 +90,6 @@ function renderDashboard(data) {
         else if (row.risk_score >= 20) riskClass = "medium";
 
         html += `<tr class="${riskClass}">`;
-
-        headers.forEach(h => {
-            html += "<td>" + row[h] + "</td>";
-        });
-
-        html += "</tr>";
-    });
-
-    html += "</table>";
-
-    results.innerHTML = html;
-}
-
-function renderVendorStats(data) {
-
-    const results = document.getElementById("results");
-    const stats = document.getElementById("stats");
-
-    stats.innerHTML = `
-        <div class="card">
-            <h3>Total Vendors</h3>
-            <p>${data.length}</p>
-        </div>
-    `;
-
-    let html = "<table><tr>";
-
-    const headers = Object.keys(data[0]);
-
-    headers.forEach(h => {
-        html += "<th>" + h + "</th>";
-    });
-
-    html += "</tr>";
-
-    data.forEach(row => {
-        html += "<tr>";
 
         headers.forEach(h => {
             html += "<td>" + row[h] + "</td>";
