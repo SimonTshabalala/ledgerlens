@@ -102,8 +102,7 @@ Then open `frontend/index.html` in your browser — or serve it with any static 
 
 ## 📄 License
 
-This project is licensed under the MIT License.
+This project is original work , from scrach to finish.. but it's still "learning work" hence its licenced under an MIT license
+--
 
----
-
-<p align="center">Built with 💰 and code — <em>LedgerLens sees what others miss.</em></p>
+<p align="center">Built with tonnes of brain power( yah i went through it fr!)  — <em>LedgerLens sees what others miss.</em></p>
