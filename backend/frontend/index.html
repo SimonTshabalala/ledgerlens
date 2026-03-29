@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>LedgerLens</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+
+<div class="container">
+
+    <h1>LedgerLens</h1>
+    <p class="subtitle">Financial Anomaly Detection System</p>
+
+    <div class="controls">
+        <button onclick="loadAll()">All Transactions</button>
+        <button onclick="loadHighRisk()">High Risk</button>
+        <button onclick="loadVendors()">Vendor Stats</button>
+    </div>
+
+    <div id="stats" class="stats"></div>
+
+    <div id="results" class="table-container"></div>
+
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
