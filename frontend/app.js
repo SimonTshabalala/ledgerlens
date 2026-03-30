@@ -3,11 +3,23 @@ const API_URL = "https://fluffy-parakeet-pjgqvv9pp7jc9p4w-8000.app.github.dev";
 function showLoading() {
     document.getElementById("results").innerHTML = "Loading...";
 }
-function loadAll() {
+async function loadAll() {
     showLoading();
-    fetch(API_URL + "/transactions")
-        .then(res => res.json())
-        .then(data => renderDashboard(data));
+
+    try {
+        const res = await fetch(API_URL + "/transactions");
+
+        if (!res.ok) {
+            throw new Error("API error");
+        }
+
+        const data = await res.json();
+        renderDashboard(data);
+
+    } catch (err) {
+        document.getElementById("results").innerHTML = "Error loading data";
+        console.error(err);
+    }
 }
 
 function loadHighRisk() {
