@@ -38,7 +38,7 @@ Base.metadata.create_all(bind=engine)
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # allow all (fine for now)
+    allow_origins=["*"],  # allow everything (for now)
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
