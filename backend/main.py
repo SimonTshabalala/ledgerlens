@@ -8,13 +8,10 @@ import pandas as pd
 from io import StringIO
 import numpy as np
 from sklearn.ensemble import IsolationForest
-from passlib.context import CryptContext
-from jose import JWTError, jwt
 from datetime import datetime, timedelta
 import os
 
 # ==================== DATABASE SETUP ====================
-# Use /tmp for Render (writable directory)
 DB_PATH = "/tmp/ledgerlens.db"
 DATABASE_URL = f"sqlite:///{DB_PATH}"
 
@@ -50,35 +47,12 @@ class Transaction(Base):
 Base.metadata.create_all(bind=engine)
 
 # ==================== AUTH SETUP ====================
-SECRET_KEY = "your-secret-key-change-this-in-production"
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
-
-def get_password_hash(password):
-    return pwd_context.hash(password)
-
-def create_access_token(data: dict):
-    to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+from auth import get_password_hash, verify_password, create_access_token, get_current_user, get_db, pwd_context
 
 # ==================== FASTAPI APP ====================
 app = FastAPI(title="LedgerLens API", description="Financial Anomaly Detection System")
 
-# CORS - Allow all origins for now (for testing)
+# CORS - Allow all origins for now
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -101,8 +75,12 @@ def register(username: str, email: str, password: str, company_name: str = "", d
         if existing_user:
             raise HTTPException(status_code=400, detail="Username or email already registered")
         
+        # Truncate password to 72 bytes for bcrypt
+        password_bytes = password.encode('utf-8')[:72]
+        truncated_password = password_bytes.decode('utf-8')
+        
         # Create new user
-        hashed_password = get_password_hash(password)
+        hashed_password = get_password_hash(truncated_password)
         user = User(
             username=username, 
             email=email, 
@@ -120,7 +98,14 @@ def register(username: str, email: str, password: str, company_name: str = "", d
 @app.post("/api/login")
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == form_data.username).first()
-    if not user or not verify_password(form_data.password, user.hashed_password):
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    # Truncate password for verification
+    password_bytes = form_data.password.encode('utf-8')[:72]
+    truncated_password = password_bytes.decode('utf-8')
+    
+    if not verify_password(truncated_password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
     access_token = create_access_token(data={"sub": user.username})
@@ -129,6 +114,17 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
         "token_type": "bearer", 
         "user_id": user.id, 
         "company": user.company_name
+    }
+
+@app.get("/api/me")
+def get_me(current_user: User = Depends(get_current_user)):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return {
+        "id": current_user.id, 
+        "username": current_user.username, 
+        "email": current_user.email, 
+        "company": current_user.company_name
     }
 
 # ==================== ANOMALY DETECTION ====================
@@ -162,7 +158,10 @@ def calculate_risk_score(row):
 
 # ==================== UPLOAD ENDPOINT ====================
 @app.post("/api/upload")
-async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def upload_csv(file: UploadFile = File(...), current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Please login first")
+    
     try:
         contents = await file.read()
         df = pd.read_csv(StringIO(contents.decode("utf-8")))
@@ -178,10 +177,9 @@ async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db)
         df = detect_anomalies(df)
         df['risk_score'] = df.apply(calculate_risk_score, axis=1)
         
-        # For demo, use a default user_id (1)
         for _, row in df.iterrows():
             transaction = Transaction(
-                user_id=1,
+                user_id=current_user.id,
                 date=row["date"],
                 vendor=row["vendor"],
                 amount=float(row["amount"]),
@@ -204,8 +202,11 @@ async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db)
 
 # ==================== DATA RETRIEVAL ====================
 @app.get("/api/transactions")
-def get_transactions(db: Session = Depends(get_db)):
-    transactions = db.query(Transaction).all()
+def get_transactions(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Please login first")
+    
+    transactions = db.query(Transaction).filter(Transaction.user_id == current_user.id).all()
     return [{
         "id": t.id, 
         "date": t.date, 
@@ -215,9 +216,29 @@ def get_transactions(db: Session = Depends(get_db)):
         "is_anomaly": t.is_anomaly
     } for t in transactions]
 
+@app.get("/api/high-risk")
+def get_high_risk(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Please login first")
+    
+    transactions = db.query(Transaction).filter(
+        Transaction.user_id == current_user.id, 
+        Transaction.risk_score >= 40
+    ).all()
+    return [{
+        "id": t.id, 
+        "date": t.date, 
+        "vendor": t.vendor, 
+        "amount": t.amount, 
+        "risk_score": t.risk_score
+    } for t in transactions]
+
 @app.get("/api/stats")
-def get_stats(db: Session = Depends(get_db)):
-    transactions = db.query(Transaction).all()
+def get_stats(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not current_user:
+        return {"total": 0, "high_risk": 0, "anomalies": 0, "total_amount": 0}
+    
+    transactions = db.query(Transaction).filter(Transaction.user_id == current_user.id).all()
     if not transactions:
         return {"total": 0, "high_risk": 0, "anomalies": 0, "total_amount": 0}
     
