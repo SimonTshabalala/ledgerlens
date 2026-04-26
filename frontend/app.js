@@ -1,4 +1,4 @@
-const API_URL = "https://fluffy-parakeet-pjgqvv9pp7jc9p4w-8000.app.github.dev";
+const API_URL = "https://ledgerlens-mdv3.onrender.com";
 
 function showLoading() {
     document.getElementById("results").innerHTML = "Loading...";
