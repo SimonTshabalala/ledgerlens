@@ -1,195 +1,161 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy.orm import Session
 import pandas as pd
 from io import StringIO
-from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, func
-from sqlalchemy.orm import sessionmaker, declarative_base, Session
+import numpy as np
+from sklearn.ensemble import IsolationForest
 
-import datetime
-
-# -------------------- DATABASE SETUP --------------------
-
-DATABASE_URL = "sqlite:///./ledgerlens.db"
-
-engine = create_engine(
-    DATABASE_URL, connect_args={"check_same_thread": False}
-)
-
-SessionLocal = sessionmaker(bind=engine)
-
-Base = declarative_base()
-
-
-class Transaction(Base):
-    __tablename__ = "transactions"
-
-    id = Column(Integer, primary_key=True, index=True)
-    date = Column(DateTime)
-    vendor = Column(String)
-    amount = Column(Float)
-    risk_score = Column(Integer)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-
+from database import engine, SessionLocal
+from models import Base, User, Transaction
+from auth import get_password_hash, verify_password, create_access_token, get_current_user, get_db
 
 Base.metadata.create_all(bind=engine)
 
-# -------------------- APP --------------------
+app = FastAPI(title="LedgerLens API", description="Financial Anomaly Detection System")
 
-app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # allow everything (for now)
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-@app.get("/")
-def root():
-    return {"message": "LedgerLens API running"}
+# ==================== AUTHENTICATION ====================
 
+@app.post("/api/register")
+def register(username: str, email: str, password: str, company_name: str = "", db: Session = Depends(get_db)):
+    existing_user = db.query(User).filter((User.username == username) | (User.email == email)).first()
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Username or email already registered")
+    
+    hashed_password = get_password_hash(password)
+    user = User(username=username, email=email, hashed_password=hashed_password, company_name=company_name)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return {"message": "User created successfully", "user_id": user.id}
 
-# -------------------- UPLOAD ENDPOINT --------------------
+@app.post("/api/login")
+def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.username == form_data.username).first()
+    if not user or not verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    access_token = create_access_token(data={"sub": user.username})
+    return {"access_token": access_token, "token_type": "bearer", "user_id": user.id, "company": user.company_name}
 
-@app.post("/upload")
-async def upload_file(file: UploadFile = File(...), window_days: int = 7):
+@app.get("/api/me")
+def get_me(current_user: User = Depends(get_current_user)):
+    return {"id": current_user.id, "username": current_user.username, "email": current_user.email, "company": current_user.company_name}
 
+# ==================== ANOMALY DETECTION ENGINE ====================
+
+def detect_anomalies(df):
+    """AI-powered anomaly detection using Isolation Forest"""
+    if len(df) < 10:
+        df['is_anomaly'] = False
+        return df
+    
+    features = df[['amount']].copy()
+    
+    features['amount_log'] = np.log1p(features['amount'])
+    features['amount_zscore'] = (features['amount'] - features['amount'].mean()) / features['amount'].std()
+    
+    iso_forest = IsolationForest(contamination=0.1, random_state=42)
+    df['is_anomaly'] = iso_forest.fit_predict(features[['amount', 'amount_log', 'amount_zscore']]) == -1
+    
+    return df
+
+def calculate_risk_score(row):
+    risk = 0
+    
+    if row['amount'] > 10000:
+        risk += 30
+    elif row['amount'] > 5000:
+        risk += 20
+    elif row['amount'] > 1000:
+        risk += 10
+    
+    if row.get('is_anomaly', False):
+        risk += 40
+    
+    if row['amount'] % 1000 == 0:
+        risk += 10
+    
+    return min(risk, 100)
+
+# ==================== CSV UPLOAD & ANALYSIS ====================
+
+@app.post("/api/upload")
+async def upload_csv(file: UploadFile = File(...), current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     contents = await file.read()
-
     df = pd.read_csv(StringIO(contents.decode("utf-8")))
-
-    if df.empty:
-        return {"error": "Empty file"}
-
+    
     df.columns = df.columns.str.lower()
-
+    
     if not {"date", "amount", "vendor"}.issubset(df.columns):
-        return {"error": "CSV must contain date, amount, vendor"}
-
+        raise HTTPException(status_code=400, detail="CSV must have date, amount, vendor columns")
+    
     df["date"] = pd.to_datetime(df["date"])
     df["amount"] = pd.to_numeric(df["amount"], errors="coerce")
     df = df.dropna(subset=["amount"])
-
-    df["risk_score"] = 0
-
-    # -------- RULE 1: DUPLICATES --------
-    df = df.sort_values(by=["vendor", "amount", "date"])
-
-    for vendor in df["vendor"].unique():
-        vendor_df = df[df["vendor"] == vendor]
-
-        for i, row in vendor_df.iterrows():
-            mask = (
-                (vendor_df["amount"] == row["amount"]) &
-                (vendor_df["date"] >= row["date"] - pd.Timedelta(days=window_days)) &
-                (vendor_df["date"] <= row["date"] + pd.Timedelta(days=window_days)) &
-                (vendor_df.index != i)
-            )
-
-            if vendor_df[mask].shape[0] > 0:
-                df.loc[i, "risk_score"] += 40
-
-    # -------- RULE 2: LARGE ANOMALY --------
-    stats = df.groupby("vendor")["amount"].agg(["mean", "std"])
-
-    for i, row in df.iterrows():
-        vendor = row["vendor"]
-
-        if vendor in stats.index:
-            mean = stats.loc[vendor, "mean"]
-            std = stats.loc[vendor, "std"]
-
-            if std > 0 and row["amount"] > mean + (3 * std):
-                df.loc[i, "risk_score"] += 30
-
-    # -------- RULE 3: ROUND NUMBERS --------
-    df.loc[df["amount"] % 1000 == 0, "risk_score"] += 10
-
-    # -------- SAVE TO DATABASE --------
-    db: Session = SessionLocal()
-
+    
+    df = detect_anomalies(df)
+    df['risk_score'] = df.apply(calculate_risk_score, axis=1)
+    
     for _, row in df.iterrows():
         transaction = Transaction(
+            user_id=current_user.id,
             date=row["date"],
             vendor=row["vendor"],
             amount=float(row["amount"]),
-            risk_score=int(row["risk_score"])
+            risk_score=int(row["risk_score"]),
+            is_anomaly=bool(row.get("is_anomaly", False))
         )
         db.add(transaction)
-
+    
     db.commit()
-    db.close()
-
-    flagged = df[df["risk_score"] > 0]
-
+    
+    flagged = df[df['risk_score'] > 20]
+    
     return {
-        "total_transactions": len(df),
+        "total": len(df),
+        "anomalies": int(df['is_anomaly'].sum()),
         "flagged_count": len(flagged),
-        "flagged_transactions": flagged.to_dict(orient="records")
+        "transactions": flagged.to_dict(orient="records")
     }
 
+# ==================== DATA RETRIEVAL ====================
 
-# -------------------- GET ALL TRANSACTIONS --------------------
+@app.get("/api/transactions")
+def get_transactions(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    transactions = db.query(Transaction).filter(Transaction.user_id == current_user.id).all()
+    return [{"id": t.id, "date": t.date, "vendor": t.vendor, "amount": t.amount, "risk_score": t.risk_score, "is_anomaly": t.is_anomaly} for t in transactions]
 
-@app.get("/transactions")
-def get_all_transactions():
-    db: Session = SessionLocal()
-    transactions = db.query(Transaction).all()
-    db.close()
+@app.get("/api/high-risk")
+def get_high_risk(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    transactions = db.query(Transaction).filter(Transaction.user_id == current_user.id, Transaction.risk_score >= 40).all()
+    return [{"id": t.id, "date": t.date, "vendor": t.vendor, "amount": t.amount, "risk_score": t.risk_score} for t in transactions]
 
-    return [
-        {
-            "id": t.id,
-            "date": t.date,
-            "vendor": t.vendor,
-            "amount": t.amount,
-            "risk_score": t.risk_score
-        }
-        for t in transactions
-    ]
+@app.get("/api/stats")
+def get_stats(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    transactions = db.query(Transaction).filter(Transaction.user_id == current_user.id).all()
+    
+    if not transactions:
+        return {"total": 0, "high_risk": 0, "anomalies": 0, "total_amount": 0}
+    
+    df = pd.DataFrame([{"amount": t.amount, "risk_score": t.risk_score, "is_anomaly": t.is_anomaly} for t in transactions])
+    
+    return {
+        "total": len(transactions),
+        "high_risk": int(df[df['risk_score'] >= 40].shape[0]),
+        "anomalies": int(df[df['is_anomaly'] == True].shape[0]),
+        "total_amount": float(df['amount'].sum())
+    }
 
-
-# -------------------- GET HIGH RISK --------------------
-
-@app.get("/high-risk")
-def get_high_risk():
-    db: Session = SessionLocal()
-    transactions = db.query(Transaction).filter(Transaction.risk_score >= 40).all()
-    db.close()
-
-    return [
-        {
-            "id": t.id,
-            "date": t.date,
-            "vendor": t.vendor,
-            "amount": t.amount,
-            "risk_score": t.risk_score
-        }
-        for t in transactions
-    ]
-
-
-# -------------------- GET VENDOR STATS --------------------
-
-@app.get("/vendors")
-def get_vendor_stats():
-    db: Session = SessionLocal()
-
-    results = db.query(
-        Transaction.vendor,
-        func.count(Transaction.id),
-        func.sum(Transaction.amount),
-        func.avg(Transaction.amount)
-    ).group_by(Transaction.vendor).all()
-
-    db.close()
-
-    return [
-        {
-            "vendor": r[0],
-            "transaction_count": r[1],
-            "total_amount": float(r[2]),
-            "average_amount": float(r[3])
-        }
-        for r in results
-    ]
+@app.get("/")
+def root():
+    return {"message": "LedgerLens API is running", "version": "2.0", "features": ["auth", "ai-anomaly-detection", "csv-upload", "multi-tenant"]}

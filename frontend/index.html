@@ -1,42 +1,65 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>LedgerLens</title>
-<link rel="stylesheet" href="styles.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LedgerLens - AI Financial Anomaly Detection</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
-
 <body>
-
-<div class="layout">
-
-    <!-- Sidebar -->
-    <div class="sidebar">
-        <h2>LedgerLens</h2>
-        <button onclick="loadAll()">All Transactions</button>
-        <button onclick="loadHighRisk()">High Risk</button>
-        <button onclick="loadVendors()">Vendors</button>
-    </div>
-
-    <!-- Main -->
-    <div class="main">
-
-        <div class="header">
-            <h1>Dashboard</h1>
+    <div id="authModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="authTitle">Login</h2>
+                <button class="close-btn" onclick="closeAuthModal()">&times;</button>
+            </div>
+            <div id="loginForm">
+                <input type="text" id="loginUsername" placeholder="Username">
+                <input type="password" id="loginPassword" placeholder="Password">
+                <button onclick="login()">Login</button>
+                <p>Don't have an account? <a href="#" onclick="showRegister()">Register</a></p>
+            </div>
+            <div id="registerForm" style="display:none;">
+                <input type="text" id="regUsername" placeholder="Username">
+                <input type="email" id="regEmail" placeholder="Email">
+                <input type="password" id="regPassword" placeholder="Password">
+                <input type="text" id="regCompany" placeholder="Company Name">
+                <button onclick="register()">Register</button>
+                <p>Already have an account? <a href="#" onclick="showLogin()">Login</a></p>
+            </div>
         </div>
-
-        <div id="stats" class="stats"></div>
-
-        <canvas id="chartCanvas"></canvas>
-
-        <div id="results" class="table-container"></div>
-
     </div>
 
-</div>
+    <div id="dashboard" style="display:none;">
+        <div class="layout">
+            <div class="sidebar">
+                <h2>🔍 LedgerLens</h2>
+                <div class="user-info" id="userInfo"></div>
+                <button onclick="loadTransactions()">📋 All Transactions</button>
+                <button onclick="loadHighRisk()">⚠️ High Risk</button>
+                <button onclick="showUpload()">📤 Upload CSV</button>
+                <button onclick="logout()">🚪 Logout</button>
+            </div>
+            
+            <div class="main">
+                <div class="header">
+                    <h1>Financial Intelligence Dashboard</h1>
+                </div>
+                
+                <div id="uploadSection" style="display:none;" class="upload-section">
+                    <h3>Upload Transaction Data</h3>
+                    <input type="file" id="csvFile" accept=".csv">
+                    <button onclick="uploadCSV()">Analyze with AI</button>
+                </div>
+                
+                <div id="stats" class="stats"></div>
+                <canvas id="chartCanvas"></canvas>
+                <div id="results" class="table-container"></div>
+            </div>
+        </div>
+    </div>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script src="app.js"></script>
-
+    <script src="app.js"></script>
 </body>
 </html>
