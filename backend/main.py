@@ -9,6 +9,7 @@ from io import StringIO
 import numpy as np
 from sklearn.ensemble import IsolationForest
 from datetime import datetime, timedelta
+import hashlib
 import os
 
 # ==================== DATABASE SETUP ====================
@@ -46,13 +47,31 @@ class Transaction(Base):
 # Create tables
 Base.metadata.create_all(bind=engine)
 
-# ==================== AUTH SETUP ====================
-from auth import get_password_hash, verify_password, create_access_token, get_current_user, get_db, pwd_context
+# ==================== SIMPLE AUTH (No bcrypt issues) ====================
+def get_password_hash(password):
+    """Simple SHA256 hashing for passwords - avoids bcrypt issues"""
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def verify_password(plain_password, hashed_password):
+    """Verify password against hash"""
+    return get_password_hash(plain_password) == hashed_password
+
+def create_access_token(data: dict):
+    """Simple token creation (for demo)"""
+    # For production, use JWT. For now, return simple dict
+    return data.get("sub", "")
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 # ==================== FASTAPI APP ====================
-app = FastAPI(title="LedgerLens API", description="Financial Anomaly Detection System")
+app = FastAPI(title="LedgerLens API")
 
-# CORS - Allow all origins for now
+# CORS - Allow all origins
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -75,24 +94,21 @@ def register(username: str, email: str, password: str, company_name: str = "", d
         if existing_user:
             raise HTTPException(status_code=400, detail="Username or email already registered")
         
-        # Truncate password to 72 bytes for bcrypt
-        password_bytes = password.encode('utf-8')[:72]
-        truncated_password = password_bytes.decode('utf-8')
-        
         # Create new user
-        hashed_password = get_password_hash(truncated_password)
+        hashed_password = get_password_hash(password)
         user = User(
             username=username, 
             email=email, 
             hashed_password=hashed_password, 
-            company_name=company_name or username
+            company_name=company_name if company_name else username
         )
         db.add(user)
         db.commit()
         db.refresh(user)
-        return {"message": "User created successfully", "user_id": user.id}
+        return {"message": "User created successfully", "user_id": user.id, "username": user.username}
     except Exception as e:
         db.rollback()
+        print(f"Registration error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/login")
@@ -101,30 +117,29 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
-    # Truncate password for verification
-    password_bytes = form_data.password.encode('utf-8')[:72]
-    truncated_password = password_bytes.decode('utf-8')
-    
-    if not verify_password(truncated_password, user.hashed_password):
+    if not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
-    access_token = create_access_token(data={"sub": user.username})
     return {
-        "access_token": access_token, 
+        "access_token": user.username, 
         "token_type": "bearer", 
         "user_id": user.id, 
-        "company": user.company_name
+        "company": user.company_name,
+        "username": user.username
     }
 
 @app.get("/api/me")
-def get_me(current_user: User = Depends(get_current_user)):
-    if not current_user:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+def get_me(username: str = None, db: Session = Depends(get_db)):
+    if not username:
+        return {"error": "Not authenticated"}
+    user = db.query(User).filter(User.username == username).first()
+    if not user:
+        return {"error": "User not found"}
     return {
-        "id": current_user.id, 
-        "username": current_user.username, 
-        "email": current_user.email, 
-        "company": current_user.company_name
+        "id": user.id, 
+        "username": user.username, 
+        "email": user.email, 
+        "company": user.company_name
     }
 
 # ==================== ANOMALY DETECTION ====================
@@ -156,13 +171,25 @@ def calculate_risk_score(row):
         risk += 10
     return min(risk, 100)
 
-# ==================== UPLOAD ENDPOINT ====================
+# ==================== CSV UPLOAD ====================
 @app.post("/api/upload")
-async def upload_csv(file: UploadFile = File(...), current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    if not current_user:
-        raise HTTPException(status_code=401, detail="Please login first")
-    
+async def upload_csv(file: UploadFile = File(...), username: str = None, db: Session = Depends(get_db)):
     try:
+        # For now, use first user or create default
+        user = db.query(User).first()
+        if not user:
+            # Create default user if none exists
+            default_user = User(
+                username="demo",
+                email="demo@demo.com",
+                hashed_password=get_password_hash("demo123"),
+                company_name="Demo Company"
+            )
+            db.add(default_user)
+            db.commit()
+            db.refresh(default_user)
+            user = default_user
+        
         contents = await file.read()
         df = pd.read_csv(StringIO(contents.decode("utf-8")))
         df.columns = df.columns.str.lower()
@@ -179,7 +206,7 @@ async def upload_csv(file: UploadFile = File(...), current_user: User = Depends(
         
         for _, row in df.iterrows():
             transaction = Transaction(
-                user_id=current_user.id,
+                user_id=user.id,
                 date=row["date"],
                 vendor=row["vendor"],
                 amount=float(row["amount"]),
@@ -198,15 +225,13 @@ async def upload_csv(file: UploadFile = File(...), current_user: User = Depends(
         }
     except Exception as e:
         db.rollback()
+        print(f"Upload error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # ==================== DATA RETRIEVAL ====================
 @app.get("/api/transactions")
-def get_transactions(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    if not current_user:
-        raise HTTPException(status_code=401, detail="Please login first")
-    
-    transactions = db.query(Transaction).filter(Transaction.user_id == current_user.id).all()
+def get_transactions(db: Session = Depends(get_db)):
+    transactions = db.query(Transaction).all()
     return [{
         "id": t.id, 
         "date": t.date, 
@@ -217,14 +242,8 @@ def get_transactions(current_user: User = Depends(get_current_user), db: Session
     } for t in transactions]
 
 @app.get("/api/high-risk")
-def get_high_risk(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    if not current_user:
-        raise HTTPException(status_code=401, detail="Please login first")
-    
-    transactions = db.query(Transaction).filter(
-        Transaction.user_id == current_user.id, 
-        Transaction.risk_score >= 40
-    ).all()
+def get_high_risk(db: Session = Depends(get_db)):
+    transactions = db.query(Transaction).filter(Transaction.risk_score >= 40).all()
     return [{
         "id": t.id, 
         "date": t.date, 
@@ -234,11 +253,8 @@ def get_high_risk(current_user: User = Depends(get_current_user), db: Session = 
     } for t in transactions]
 
 @app.get("/api/stats")
-def get_stats(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    if not current_user:
-        return {"total": 0, "high_risk": 0, "anomalies": 0, "total_amount": 0}
-    
-    transactions = db.query(Transaction).filter(Transaction.user_id == current_user.id).all()
+def get_stats(db: Session = Depends(get_db)):
+    transactions = db.query(Transaction).all()
     if not transactions:
         return {"total": 0, "high_risk": 0, "anomalies": 0, "total_amount": 0}
     
@@ -253,3 +269,7 @@ def get_stats(current_user: User = Depends(get_current_user), db: Session = Depe
         "anomalies": anomalies,
         "total_amount": total_amount
     }
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
