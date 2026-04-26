@@ -17,7 +17,12 @@ app = FastAPI(title="LedgerLens API", description="Financial Anomaly Detection S
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "*",  # Allow all for now (for testing)
+        "https://ledgerlens-green.vercel.app",
+        "http://localhost:3000",
+        "http://localhost:5500"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
