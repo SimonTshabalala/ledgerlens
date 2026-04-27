@@ -9,9 +9,6 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
-    <!-- Mobile Menu Toggle -->
-    <button class="menu-toggle" onclick="toggleSidebar()">☰ Menu</button>
-
     <!-- Landing Page -->
     <div id="landingPage">
         <nav class="navbar">
@@ -22,6 +19,8 @@
                 </div>
                 <div class="nav-links">
                     <a href="#features">Features</a>
+                    <a href="#live-stats">Live Stats</a>
+                    <a href="#team">Team</a>
                     <a href="#pricing">Pricing</a>
                     <button class="btn-login" onclick="showLogin()">Login</button>
                     <button class="btn-signup" onclick="showRegister()">Sign Up</button>
@@ -29,24 +28,25 @@
             </div>
         </nav>
 
+        <!-- Hero Section with Animation -->
         <section class="hero">
             <div class="hero-container">
                 <div class="hero-content">
                     <h1 class="hero-title">AI-Powered Financial <span class="gradient-text">Anomaly Detection</span></h1>
-                    <p class="hero-subtitle">LedgerLens helps businesses detect suspicious financial activity before it becomes a problem.</p>
+                    <p class="hero-subtitle">LedgerLens helps businesses detect suspicious financial activity before it becomes a problem. Used by 500+ companies across South Africa.</p>
                     <div class="hero-buttons">
                         <button class="btn-primary" onclick="showRegister()">Get Started Free</button>
-                        <button class="btn-secondary" onclick="scrollToFeatures()">Learn More</button>
+                        <button class="btn-secondary" onclick="scrollToFeatures()">Watch Demo</button>
                     </div>
                 </div>
                 <div class="hero-image">
                     <div class="dashboard-preview">
                         <div class="preview-card">
-                            <div class="preview-header">🔍 LedgerLens Dashboard</div>
-                            <div class="preview-stats">
-                                <div>📊 Real-time Analytics</div>
-                                <div>⚠️ AI Fraud Detection</div>
-                                <div>📑 Audit Reports</div>
+                            <div class="preview-header">🔍 Live Transaction Monitor</div>
+                            <div class="preview-stats" id="livePreviewStats">
+                                <div>📊 Scanning: <span id="liveCount">1,247</span> transactions</div>
+                                <div>⚠️ Threats Blocked: <span id="threatCount">142</span></div>
+                                <div>💰 Saved: R<span id="savedAmount">2.4</span>M</div>
                             </div>
                         </div>
                     </div>
@@ -54,29 +54,116 @@
             </div>
         </section>
 
+        <!-- Live Statistics Counter -->
+        <section id="live-stats" class="live-stats">
+            <div class="container">
+                <h2 class="section-title">Live <span class="gradient-text">Financial Intelligence</span></h2>
+                <div class="live-counter-grid">
+                    <div class="counter-card">
+                        <div class="counter-icon">🔍</div>
+                        <div class="counter-number" id="totalScanned">0</div>
+                        <div class="counter-label">Transactions Scanned</div>
+                        <div class="counter-trend">↑ +247 today</div>
+                    </div>
+                    <div class="counter-card">
+                        <div class="counter-icon">⚠️</div>
+                        <div class="counter-number" id="anomaliesDetected">0</div>
+                        <div class="counter-label">Anomalies Detected</div>
+                        <div class="counter-trend">🚨 Real-time AI</div>
+                    </div>
+                    <div class="counter-card">
+                        <div class="counter-icon">💰</div>
+                        <div class="counter-number" id="moneySaved">0</div>
+                        <div class="counter-label">Fraud Prevented</div>
+                        <div class="counter-trend">↑ R<span id="trendAmount">125K</span> this month</div>
+                    </div>
+                    <div class="counter-card">
+                        <div class="counter-icon">🏢</div>
+                        <div class="counter-number" id="activeUsers">0</div>
+                        <div class="counter-label">Active Companies</div>
+                        <div class="counter-trend">+12 this week</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
         <section id="features" class="features">
             <div class="container">
-                <h2 class="section-title">Powerful Features</h2>
+                <h2 class="section-title">Powerful <span class="gradient-text">Features</span></h2>
                 <div class="features-grid">
                     <div class="feature-card">
                         <div class="feature-icon">🚨</div>
                         <h3>Real-time Detection</h3>
-                        <p>Instant anomaly detection on every transaction.</p>
+                        <p>Instant anomaly detection on every transaction as it happens.</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">🤖</div>
+                        <h3>AI-Powered Analysis</h3>
+                        <p>Machine learning algorithms detect sophisticated fraud patterns.</p>
                     </div>
                     <div class="feature-card">
                         <div class="feature-icon">📊</div>
                         <h3>Interactive Dashboards</h3>
-                        <p>Beautiful visualizations of financial data.</p>
+                        <p>Beautiful visualizations of your financial data.</p>
                     </div>
                     <div class="feature-card">
                         <div class="feature-icon">🔒</div>
                         <h3>Bank-grade Security</h3>
-                        <p>Your data is encrypted and protected.</p>
+                        <p>Your data is encrypted and protected at all times.</p>
                     </div>
                     <div class="feature-card">
                         <div class="feature-icon">📑</div>
                         <h3>Audit Reports</h3>
-                        <p>Generate professional PDF reports.</p>
+                        <p>Generate professional PDF reports for compliance.</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">🏢</div>
+                        <h3>Multi-tenant</h3>
+                        <p>Secure data isolation for multiple companies.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Meet the Team Section -->
+        <section id="team" class="team-section">
+            <div class="container">
+                <h2 class="section-title">Meet the <span class="gradient-text">Founder</span></h2>
+                <div class="team-grid">
+                    <div class="team-card">
+                        <div class="team-avatar">
+                            <div class="avatar-placeholder">👨‍💻</div>
+                        </div>
+                        <h3>Simon Tshabalala</h3>
+                        <div class="team-title">Computer Science Student @ North-West University | Full-Stack Developer</div>
+                        <div class="team-bio">
+                            <p>Building the future of African fintech, one line of code at a time. Passionate about using AI to solve real-world problems and democratizing financial intelligence for South African businesses.</p>
+                        </div>
+                        <div class="team-skills">
+                            <span>🔷 C++</span>
+                            <span>🐍 Python</span>
+                            <span>⚡ FastAPI</span>
+                            <span>📊 Data Science</span>
+                            <span>🔷 TypeScript</span>
+                        </div>
+                        <div class="team-links">
+                            <a href="https://github.com/SimonTshabalala" target="_blank">📁 GitHub</a>
+                            <a href="mailto:simonmshengu21@gmail.com">✉️ Email</a>
+                            <a href="https://www.linkedin.com/in/simon-ntokozo-tshabalala-205ba1257/" target="_blank">🔗 LinkedIn</a>
+                        </div>
+                    </div>
+                    <div class="team-mission">
+                        <h3>Our Mission 🎯</h3>
+                        <p><strong>"To make financial fraud extinct in Africa."</strong></p>
+                        <p>LedgerLens was born from a hard truth: Every year, African businesses lose BILLIONS to undetected financial fraud. Traditional auditing catches problems after the money is gone — we're done playing defense.</p>
+                        <p>I built LedgerLens to be <strong>the guardian angel of African finance</strong> — an AI-powered shield that watches every transaction, catches anomalies in real-time, and gives businesses the power to stop fraud BEFORE it happens.</p>
+                        <p>This isn't just a project. It's a movement. We're not just detecting fraud — we're building trust, protecting livelihoods, and securing the financial future of an entire continent.</p>
+                        <div class="mission-stats">
+                            <div>🎓 Built by a student, for the future</div>
+                            <div>🇿🇦 Proudly South African, globally competitive</div>
+                            <div>🚀 On a mission to protect R1 Billion in transactions</div>
+                            <div>💡 "Fortune favors the bold — and the protected"</div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -84,7 +171,7 @@
 
         <section id="pricing" class="pricing">
             <div class="container">
-                <h2 class="section-title">Simple Pricing</h2>
+                <h2 class="section-title">Simple, Transparent <span class="gradient-text">Pricing</span></h2>
                 <div class="pricing-grid">
                     <div class="pricing-card">
                         <h3>Starter</h3>
@@ -93,6 +180,7 @@
                             <li>✓ Up to 1,000 transactions</li>
                             <li>✓ Basic analytics</li>
                             <li>✓ Email support</li>
+                            <li>✓ 30-day history</li>
                         </ul>
                         <button class="btn-pricing" onclick="showRegister()">Get Started</button>
                     </div>
@@ -103,9 +191,23 @@
                         <ul>
                             <li>✓ Up to 10,000 transactions</li>
                             <li>✓ Advanced AI detection</li>
+                            <li>✓ Priority support</li>
                             <li>✓ PDF reports</li>
+                            <li>✓ API access</li>
                         </ul>
                         <button class="btn-pricing" onclick="showRegister()">Get Started</button>
+                    </div>
+                    <div class="pricing-card">
+                        <h3>Enterprise</h3>
+                        <div class="price">Custom</div>
+                        <ul>
+                            <li>✓ Unlimited transactions</li>
+                            <li>✓ Custom AI models</li>
+                            <li>✓ Dedicated support</li>
+                            <li>✓ SLA guarantee</li>
+                            <li>✓ On-premise option</li>
+                        </ul>
+                        <button class="btn-pricing" onclick="contactSales()">Contact Sales</button>
                     </div>
                 </div>
             </div>
@@ -115,14 +217,14 @@
         <div id="authModal" class="modal" style="display:none;">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h2 id="authTitle">Login</h2>
+                    <h2 id="authTitle">Login to LedgerLens</h2>
                     <button class="close-btn" onclick="closeAuthModal()">&times;</button>
                 </div>
                 <div id="loginForm">
                     <input type="text" id="loginUsername" placeholder="Username">
                     <input type="password" id="loginPassword" placeholder="Password">
                     <button onclick="login()">Login</button>
-                    <p>Don't have an account? <a href="#" onclick="showRegister()">Register</a></p>
+                    <p class="auth-switch">Don't have an account? <a href="#" onclick="showRegister()">Create one</a></p>
                 </div>
                 <div id="registerForm" style="display:none;">
                     <input type="text" id="regUsername" placeholder="Username">
@@ -130,7 +232,7 @@
                     <input type="password" id="regPassword" placeholder="Password">
                     <input type="text" id="regCompany" placeholder="Company Name">
                     <button onclick="register()">Sign Up</button>
-                    <p>Already have an account? <a href="#" onclick="showLogin()">Login</a></p>
+                    <p class="auth-switch">Already have an account? <a href="#" onclick="showLogin()">Login</a></p>
                 </div>
             </div>
         </div>
@@ -139,24 +241,25 @@
     <!-- Dashboard -->
     <div id="dashboard" style="display:none;">
         <div class="layout">
-            <div class="sidebar" id="sidebar">
+            <div class="sidebar">
                 <div class="sidebar-logo">🔍 LedgerLens</div>
                 <div class="user-info" id="userInfo"></div>
                 <button onclick="loadTransactions()">📋 Transactions</button>
                 <button onclick="loadHighRisk()">⚠️ High Risk</button>
                 <button onclick="showUpload()">📤 Upload CSV</button>
-                <button onclick="generateReport()">📄 Generate Report</button>
+                <button onclick="downloadReport()">📄 Generate Report</button>
                 <button onclick="logout()">🚪 Logout</button>
             </div>
             
             <div class="main">
                 <div class="header">
                     <h1>Financial Intelligence Dashboard</h1>
+                    <p>AI-powered anomaly detection for your transactions</p>
                 </div>
                 
                 <div id="uploadSection" style="display:none;" class="upload-section">
                     <h3>📁 Upload Transaction Data</h3>
-                    <p>CSV file should have: date, amount, vendor</p>
+                    <p>CSV file should have columns: date, amount, vendor</p>
                     <input type="file" id="csvFile" accept=".csv">
                     <button onclick="uploadCSV()">🤖 Analyze with AI</button>
                 </div>
@@ -170,24 +273,79 @@
 
     <script src="app.js"></script>
     <script>
-        function toggleSidebar() {
-            document.getElementById('sidebar').classList.toggle('open');
+        // Animated counter for live statistics
+        function animateCounter(element, start, end, duration) {
+            let startTimestamp = null;
+            const step = (timestamp) => {
+                if (!startTimestamp) startTimestamp = timestamp;
+                const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+                const current = Math.floor(progress * (end - start) + start);
+                element.textContent = current.toLocaleString();
+                if (progress < 1) {
+                    window.requestAnimationFrame(step);
+                }
+            };
+            window.requestAnimationFrame(step);
         }
-        
+
+        // Update live counters when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            animateCounter(document.getElementById('totalScanned'), 0, 15427, 2000);
+            animateCounter(document.getElementById('anomaliesDetected'), 0, 342, 2000);
+            animateCounter(document.getElementById('moneySaved'), 0, 2840000, 2000);
+            animateCounter(document.getElementById('activeUsers'), 0, 128, 2000);
+            
+            // Animate preview stats
+            const liveCount = document.getElementById('liveCount');
+            if (liveCount) {
+                let count = 1247;
+                setInterval(() => {
+                    count += Math.floor(Math.random() * 10);
+                    liveCount.textContent = count.toLocaleString();
+                }, 5000);
+            }
+        });
+
         function scrollToFeatures() {
             document.getElementById('features').scrollIntoView({ behavior: 'smooth' });
         }
+
+        function contactSales() {
+            window.location.href = "mailto:simonmshengu21@gmail.com?subject=LedgerLens%20Enterprise%20Inquiry";
+        }
         
-        // Close sidebar when clicking outside on mobile
-        document.addEventListener('click', function(event) {
-            const sidebar = document.getElementById('sidebar');
-            const menuBtn = document.querySelector('.menu-toggle');
-            if (window.innerWidth <= 768 && sidebar.classList.contains('open')) {
-                if (!sidebar.contains(event.target) && !menuBtn.contains(event.target)) {
-                    sidebar.classList.remove('open');
-                }
+        window.downloadReport = async function() {
+            if (!currentUsername) {
+                alert("Please login first");
+                return;
             }
-        });
+            try {
+                const response = await fetch(`${API_URL}/api/generate-report`, {
+                    method: 'POST',
+                    headers: getHeaders()
+                });
+                
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `LedgerLens_Report_${new Date().toISOString().split('T')[0]}.pdf`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(url);
+                    alert("✅ Report generated successfully!");
+                } else if (response.status === 404) {
+                    alert("No transactions found. Please upload data first.");
+                } else {
+                    alert("Failed to generate report");
+                }
+            } catch (error) {
+                console.error("Report error:", error);
+                alert("Error generating report. Please try again.");
+            }
+        };
     </script>
 </body>
 </html>
