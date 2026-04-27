@@ -1,11 +1,12 @@
 from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, status, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.responses import Response
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 import pandas as pd
-from io import StringIO
+from io import StringIO, BytesIO
 import numpy as np
 from sklearn.ensemble import IsolationForest
 from sklearn.linear_model import LinearRegression
@@ -13,7 +14,12 @@ from datetime import datetime, timedelta
 import hashlib
 import os
 import enum
-from fastapi.responses import Response
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak, Image
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+import tempfile
 
 # ==================== DATABASE SETUP ====================
 DB_PATH = "/tmp/ledgerlens.db"
@@ -322,10 +328,11 @@ def get_stats(username: str = Header(None), db: Session = Depends(get_db)):
         "next_month_prediction": round(next_month_pred, 2),
         "next_3_months_prediction": round(next_3_months_pred, 2),
         "high_risk_percentage": round((high_risk_total / total_amount * 100), 2) if total_amount > 0 else 0,
-        "low_risk_percentage": round((low_risk_total / total_amount * 100), 2) if total_amount > 0 else 0
+        "low_risk_percentage": round((low_risk_total / total_amount * 100), 2) if total_amount > 0 else 0,
+        "company_name": user.company_name
     }
 
-# ==================== REPORT GENERATION ====================
+# ==================== PDF REPORT GENERATION ====================
 @app.post("/api/generate-report")
 async def generate_report(username: str = Header(None), db: Session = Depends(get_db)):
     user = get_current_user(username, db)
@@ -336,7 +343,186 @@ async def generate_report(username: str = Header(None), db: Session = Depends(ge
     if not transactions:
         raise HTTPException(status_code=404, detail="No transactions found")
     
-    return {"message": "Report generation available", "total_transactions": len(transactions)}
+    # Get stats
+    stats = await get_stats(username, db)
+    
+    # Create PDF in memory
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4)
+    styles = getSampleStyleSheet()
+    story = []
+    
+    # Custom styles
+    title_style = ParagraphStyle('CustomTitle', parent=styles['Heading1'], fontSize=24, textColor=colors.HexColor('#667eea'), alignment=1)
+    heading_style = ParagraphStyle('CustomHeading', parent=styles['Heading2'], fontSize=16, textColor=colors.HexColor('#2c3e50'))
+    
+    # Title
+    story.append(Paragraph("LedgerLens Financial Intelligence Report", title_style))
+    story.append(Spacer(1, 10))
+    story.append(Paragraph(f"<b>Company:</b> {stats.get('company_name', user.company_name)}", styles['Normal']))
+    story.append(Paragraph(f"<b>Report Date:</b> {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
+    story.append(Spacer(1, 20))
+    
+    # Executive Summary
+    story.append(Paragraph("Executive Summary", heading_style))
+    story.append(Spacer(1, 10))
+    
+    summary_data = [
+        ["Metric", "Value"],
+        ["Total Transactions", str(stats['total'])],
+        ["Total Income", f"R{stats['total_income']:,.2f}"],
+        ["Total Expenses", f"R{stats['total_expense']:,.2f}"],
+        ["Net Profit/Loss", f"R{stats['total_income'] - stats['total_expense']:,.2f}"],
+        ["High Risk Transactions", str(stats['high_risk'])],
+        ["AI-Detected Anomalies", str(stats['anomalies'])],
+        ["Year-over-Year Growth", f"{stats['yoy_growth']}%"],
+        ["High Risk % of Portfolio", f"{stats['high_risk_percentage']}%"]
+    ]
+    
+    summary_table = Table(summary_data, colWidths=[180, 150])
+    summary_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 12),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+    ]))
+    story.append(summary_table)
+    story.append(Spacer(1, 20))
+    
+    # Year-over-Year Performance
+    story.append(Paragraph("Year-over-Year Performance", heading_style))
+    story.append(Spacer(1, 10))
+    
+    yoy_data = [
+        ["Period", "Total Amount", "Growth"],
+        [f"{datetime.utcnow().year - 1}", f"R{stats['prev_year_total']:,.2f}", ""],
+        [f"{datetime.utcnow().year}", f"R{stats['current_year_total']:,.2f}", f"{stats['yoy_growth']}%"],
+    ]
+    
+    yoy_table = Table(yoy_data, colWidths=[120, 150, 100])
+    yoy_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+    ]))
+    story.append(yoy_table)
+    story.append(Spacer(1, 20))
+    
+    # Financial Forecast
+    story.append(Paragraph("Financial Forecast", heading_style))
+    story.append(Spacer(1, 10))
+    
+    forecast_data = [
+        ["Prediction Period", "Projected Amount"],
+        ["Next Month", f"R{stats['next_month_prediction']:,.2f}"],
+        ["Next 3 Months", f"R{stats['next_3_months_prediction']:,.2f}"],
+        ["Annual Run Rate", f"R{stats['next_month_prediction'] * 12:,.2f}"]
+    ]
+    
+    forecast_table = Table(forecast_data, colWidths=[150, 150])
+    forecast_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+    ]))
+    story.append(forecast_table)
+    story.append(Spacer(1, 20))
+    
+    # Risk Distribution
+    story.append(Paragraph("Risk Distribution", heading_style))
+    story.append(Spacer(1, 10))
+    
+    risk_data = [
+        ["Risk Level", "Percentage of Portfolio", "Status"],
+        ["High Risk", f"{stats['high_risk_percentage']}%", "⚠️ Requires Investigation"],
+        ["Low Risk", f"{stats['low_risk_percentage']}%", "✓ Normal Activity"]
+    ]
+    
+    risk_table = Table(risk_data, colWidths=[120, 120, 180])
+    risk_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('BACKGROUND', (0, 1), (0, 1), colors.pink),
+        ('BACKGROUND', (0, 2), (0, 2), colors.lightgreen),
+    ]))
+    story.append(risk_table)
+    story.append(Spacer(1, 20))
+    
+    # Top Anomalies
+    anomalies = [t for t in transactions if t.is_anomaly][:10]
+    if anomalies:
+        story.append(Paragraph("Top Detected Anomalies", heading_style))
+        story.append(Spacer(1, 10))
+        
+        anomaly_data = [["Date", "Vendor", "Amount", "Risk Score"]]
+        for a in anomalies:
+            anomaly_data.append([
+                a.date.strftime('%Y-%m-%d'),
+                a.vendor,
+                f"R{a.amount:,.2f}",
+                str(a.risk_score)
+            ])
+        
+        anomaly_table = Table(anomaly_data, repeatRows=1)
+        anomaly_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.red),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ]))
+        story.append(anomaly_table)
+        story.append(Spacer(1, 20))
+    
+    # Recent Transactions
+    story.append(PageBreak())
+    story.append(Paragraph("Recent Transaction History", heading_style))
+    story.append(Spacer(1, 10))
+    
+    recent = sorted(transactions, key=lambda x: x.date, reverse=True)[:50]
+    transaction_data = [["Date", "Vendor", "Amount", "Type", "Risk"]]
+    for t in recent:
+        transaction_data.append([
+            t.date.strftime('%Y-%m-%d'),
+            t.vendor[:30],
+            f"R{t.amount:,.2f}",
+            t.transaction_type.upper(),
+            str(t.risk_score)
+        ])
+    
+    trans_table = Table(transaction_data, repeatRows=1)
+    trans_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#667eea')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTSIZE', (0, 0), (-1, 0), 10),
+        ('FONTSIZE', (0, 1), (-1, -1), 8),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+    ]))
+    story.append(trans_table)
+    
+    # Footer note
+    story.append(Spacer(1, 20))
+    story.append(Paragraph("<i>This report was automatically generated by LedgerLens AI Financial Intelligence Platform.</i>", styles['Normal']))
+    story.append(Paragraph("<i>For questions or support, contact your LedgerLens administrator.</i>", styles['Normal']))
+    
+    # Build PDF
+    doc.build(story)
+    buffer.seek(0)
+    
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f"attachment; filename=LedgerLens_Report_{user.company_name}_{datetime.utcnow().strftime('%Y%m%d')}.pdf"
+        }
+    )
 
 if __name__ == "__main__":
     import uvicorn
