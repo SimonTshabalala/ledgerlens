@@ -1,23 +1,24 @@
 from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, status, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean, func
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean, Enum, func, and_
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 import pandas as pd
 from io import StringIO
 import numpy as np
 from sklearn.ensemble import IsolationForest
+from sklearn.linear_model import LinearRegression
 from datetime import datetime, timedelta
 import hashlib
 import os
-import json
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import letter, A4
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
+from reportlab.lib.pagesizes import A4
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image, PageBreak
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
-from reportlab.pdfgen import canvas
+from fastapi.responses import Response
+import json
 
 # ==================== DATABASE SETUP ====================
 DB_PATH = "/tmp/ledgerlens.db"
@@ -28,6 +29,24 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 # ==================== MODELS ====================
+class TransactionType(enum.Enum):
+    INCOME = "income"
+    EXPENSE = "expense"
+
+class Transaction(Base):
+    __tablename__ = "transactions"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, index=True, nullable=False)
+    date = Column(DateTime, nullable=False)
+    vendor = Column(String, nullable=False)
+    amount = Column(Float, nullable=False)
+    transaction_type = Column(String, default="expense")
+    category = Column(String, default="Uncategorized")
+    risk_score = Column(Integer, default=0)
+    is_anomaly = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 class User(Base):
     __tablename__ = "users"
     
@@ -36,19 +55,6 @@ class User(Base):
     username = Column(String, unique=True, index=True)
     hashed_password = Column(String)
     company_name = Column(String, default="")
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-class Transaction(Base):
-    __tablename__ = "transactions"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, index=True)
-    date = Column(DateTime)
-    vendor = Column(String)
-    amount = Column(Float)
-    risk_score = Column(Integer, default=0)
-    is_anomaly = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 # Create tables
@@ -84,34 +90,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ==================== LANDING PAGE CONTENT ====================
-LANDING_CONTENT = {
-    "company": "LedgerLens",
-    "tagline": "AI-Powered Financial Anomaly Detection for Modern Businesses",
-    "description": "LedgerLens helps businesses detect suspicious financial activity before it becomes a problem. Using advanced AI and machine learning, we analyze transaction patterns, flag anomalies, and provide actionable insights.",
-    "features": [
-        "🚨 Real-time anomaly detection",
-        "📊 Interactive financial dashboards",
-        "🔒 Bank-grade security",
-        "📑 Audit-ready reports",
-        "🤖 AI-powered fraud detection",
-        "🏢 Multi-tenant architecture"
-    ],
-    "pricing": [
-        {"plan": "Starter", "price": "R999/month", "features": ["Up to 1,000 transactions", "Basic analytics", "Email support"]},
-        {"plan": "Professional", "price": "R2,499/month", "features": ["Up to 10,000 transactions", "Advanced AI", "Priority support", "API access"]},
-        {"plan": "Enterprise", "price": "Custom", "features": ["Unlimited transactions", "Custom AI models", "Dedicated support", "SLA guarantee"]}
-    ]
-}
-
 # ==================== HEALTH CHECK ====================
 @app.get("/")
 def root():
-    return LANDING_CONTENT
-
-@app.get("/api/health")
-def health():
-    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
+    return {
+        "company": "LedgerLens",
+        "tagline": "AI-Powered Financial Intelligence Platform",
+        "status": "operational",
+        "version": "3.0"
+    }
 
 # ==================== AUTH ENDPOINTS ====================
 @app.post("/api/register")
@@ -179,53 +166,62 @@ def calculate_risk_score(row):
         risk += 10
     return min(risk, 100)
 
-# ==================== CSV UPLOAD (User-Specific) ====================
+# ==================== CSV UPLOAD (STRICT USER ISOLATION) ====================
 @app.post("/api/upload")
 async def upload_csv(
     file: UploadFile = File(...),
     username: str = Header(None),
     db: Session = Depends(get_db)
 ):
+    user = get_current_user(username, db)
+    if not user:
+        raise HTTPException(status_code=401, detail="User not authenticated")
+    
     try:
-        user = get_current_user(username, db)
-        if not user:
-            # Create demo user for testing
-            user = db.query(User).first()
-            if not user:
-                user = User(
-                    username="demo",
-                    email="demo@demo.com",
-                    hashed_password=get_password_hash("demo123"),
-                    company_name="Demo Company"
-                )
-                db.add(user)
-                db.commit()
-                db.refresh(user)
-        
         contents = await file.read()
         df = pd.read_csv(StringIO(contents.decode("utf-8")))
         df.columns = df.columns.str.lower()
         
-        if not {"date", "amount", "vendor"}.issubset(df.columns):
+        # Check required columns
+        required_cols = {"date", "amount", "vendor"}
+        if not required_cols.issubset(df.columns):
             raise HTTPException(status_code=400, detail="CSV must have date, amount, vendor columns")
+        
+        # Optional: transaction_type column (income/expense)
+        has_type = "transaction_type" in df.columns
+        has_category = "category" in df.columns
         
         df["date"] = pd.to_datetime(df["date"])
         df["amount"] = pd.to_numeric(df["amount"], errors="coerce")
         df = df.dropna(subset=["amount"])
         
+        # Set transaction type
+        if has_type:
+            df["transaction_type"] = df["transaction_type"].str.lower()
+        else:
+            df["transaction_type"] = "expense"
+        
+        # Set category
+        if has_category:
+            df["category"] = df["category"]
+        else:
+            df["category"] = "Uncategorized"
+        
         df = detect_anomalies(df)
         df['risk_score'] = df.apply(calculate_risk_score, axis=1)
         
-        # Clear user's old transactions
+        # CRITICAL: Delete ONLY this user's transactions
         db.query(Transaction).filter(Transaction.user_id == user.id).delete()
         
-        # Add new transactions
+        # Add new transactions for this user only
         for _, row in df.iterrows():
             transaction = Transaction(
-                user_id=user.id,
+                user_id=user.id,  # CRITICAL: Link to specific user
                 date=row["date"],
                 vendor=row["vendor"],
                 amount=float(row["amount"]),
+                transaction_type=row["transaction_type"],
+                category=row["category"],
                 risk_score=int(row["risk_score"]),
                 is_anomaly=bool(row.get("is_anomaly", False))
             )
@@ -243,18 +239,45 @@ async def upload_csv(
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
-# ==================== DATA RETRIEVAL (User-Specific) ====================
+# ==================== DATA RETRIEVAL (STRICT USER ISOLATION) ====================
 @app.get("/api/transactions")
 def get_transactions(username: str = Header(None), db: Session = Depends(get_db)):
     user = get_current_user(username, db)
     if not user:
         return []
+    
+    # CRITICAL: Filter by user_id
     transactions = db.query(Transaction).filter(Transaction.user_id == user.id).all()
     return [{
         "id": t.id, 
         "date": t.date.isoformat() if t.date else None,
         "vendor": t.vendor, 
-        "amount": t.amount, 
+        "amount": t.amount,
+        "transaction_type": t.transaction_type,
+        "category": t.category,
+        "risk_score": t.risk_score, 
+        "is_anomaly": t.is_anomaly
+    } for t in transactions]
+
+@app.get("/api/high-risk")
+def get_high_risk(username: str = Header(None), db: Session = Depends(get_db)):
+    user = get_current_user(username, db)
+    if not user:
+        return []
+    
+    # CRITICAL: Filter by user_id AND risk_score
+    transactions = db.query(Transaction).filter(
+        Transaction.user_id == user.id,
+        Transaction.risk_score >= 40
+    ).all()
+    
+    return [{
+        "id": t.id, 
+        "date": t.date.isoformat() if t.date else None,
+        "vendor": t.vendor, 
+        "amount": t.amount,
+        "transaction_type": t.transaction_type,
+        "category": t.category,
         "risk_score": t.risk_score, 
         "is_anomaly": t.is_anomaly
     } for t in transactions]
@@ -263,25 +286,68 @@ def get_transactions(username: str = Header(None), db: Session = Depends(get_db)
 def get_stats(username: str = Header(None), db: Session = Depends(get_db)):
     user = get_current_user(username, db)
     if not user:
-        return {"total": 0, "high_risk": 0, "anomalies": 0, "total_amount": 0}
+        return {"total": 0, "high_risk": 0, "anomalies": 0, "total_amount": 0, "total_income": 0, "total_expense": 0}
     
+    # CRITICAL: Filter by user_id
     transactions = db.query(Transaction).filter(Transaction.user_id == user.id).all()
     if not transactions:
-        return {"total": 0, "high_risk": 0, "anomalies": 0, "total_amount": 0}
+        return {"total": 0, "high_risk": 0, "anomalies": 0, "total_amount": 0, "total_income": 0, "total_expense": 0}
     
     total = len(transactions)
     high_risk = sum(1 for t in transactions if t.risk_score >= 40)
     anomalies = sum(1 for t in transactions if t.is_anomaly)
     total_amount = sum(t.amount for t in transactions)
+    total_income = sum(t.amount for t in transactions if t.transaction_type == "income")
+    total_expense = sum(t.amount for t in transactions if t.transaction_type == "expense")
+    
+    # Year-over-year comparison
+    current_year = datetime.utcnow().year
+    prev_year = current_year - 1
+    
+    current_year_total = sum(t.amount for t in transactions if t.date.year == current_year)
+    prev_year_total = sum(t.amount for t in transactions if t.date.year == prev_year)
+    
+    yoy_growth = ((current_year_total - prev_year_total) / prev_year_total * 100) if prev_year_total > 0 else 0
+    
+    # Future prediction (simple linear regression)
+    monthly_data = {}
+    for t in transactions:
+        month_key = t.date.strftime("%Y-%m")
+        monthly_data[month_key] = monthly_data.get(month_key, 0) + t.amount
+    
+    months = list(range(len(monthly_data)))
+    amounts = list(monthly_data.values())
+    
+    if len(months) >= 3:
+        model = LinearRegression()
+        model.fit(np.array(months).reshape(-1, 1), amounts)
+        next_month_pred = model.predict([[len(months)]])[0]
+        next_3_months_pred = model.predict([[len(months) + 3]])[0]
+    else:
+        next_month_pred = sum(amounts) / len(amounts) if amounts else 0
+        next_3_months_pred = next_month_pred * 3
+    
+    # High risk pie chart data
+    high_risk_total = sum(t.amount for t in transactions if t.risk_score >= 40)
+    low_risk_total = sum(t.amount for t in transactions if t.risk_score < 40)
     
     return {
         "total": total,
         "high_risk": high_risk,
         "anomalies": anomalies,
-        "total_amount": total_amount
+        "total_amount": total_amount,
+        "total_income": total_income,
+        "total_expense": total_expense,
+        "yoy_growth": round(yoy_growth, 2),
+        "current_year_total": current_year_total,
+        "prev_year_total": prev_year_total,
+        "next_month_prediction": round(next_month_pred, 2),
+        "next_3_months_prediction": round(next_3_months_pred, 2),
+        "high_risk_percentage": round((high_risk_total / total_amount * 100), 2) if total_amount > 0 else 0,
+        "low_risk_percentage": round((low_risk_total / total_amount * 100), 2) if total_amount > 0 else 0
     }
 
-# ==================== REPORT GENERATION ====================
+# ==================== COMPREHENSIVE REPORT GENERATION ====================
 @app.post("/api/generate-report")
 async def generate_report(username: str = Header(None), db: Session = Depends(get_db)):
     user = get_current_user(username, db)
@@ -292,7 +358,6 @@ async def generate_report(username: str = Header(None), db: Session = Depends(ge
     if not transactions:
         raise HTTPException(status_code=404, detail="No transactions found")
     
-    # Create PDF report
     report_path = f"/tmp/report_{user.id}_{datetime.utcnow().timestamp()}.pdf"
     doc = SimpleDocTemplate(report_path, pagesize=A4)
     styles = getSampleStyleSheet()
@@ -300,69 +365,124 @@ async def generate_report(username: str = Header(None), db: Session = Depends(ge
     
     # Title
     title_style = ParagraphStyle('CustomTitle', parent=styles['Heading1'], fontSize=24, textColor=colors.HexColor('#667eea'))
-    story.append(Paragraph(f"LedgerLens Financial Report", title_style))
+    story.append(Paragraph(f"LedgerLens Financial Intelligence Report", title_style))
+    story.append(Spacer(1, 10))
     story.append(Paragraph(f"<b>Company:</b> {user.company_name}", styles['Normal']))
-    story.append(Paragraph(f"<b>Generated:</b> {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
+    story.append(Paragraph(f"<b>Report Date:</b> {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
     story.append(Spacer(1, 20))
     
-    # Summary
-    total_amount = sum(t.amount for t in transactions)
-    high_risk_count = sum(1 for t in transactions if t.risk_score >= 40)
-    anomaly_count = sum(1 for t in transactions if t.is_anomaly)
+    # Executive Summary
+    story.append(Paragraph("Executive Summary", styles['Heading2']))
+    stats = await get_stats(username, db)
     
     summary_data = [
         ["Metric", "Value"],
-        ["Total Transactions", str(len(transactions))],
-        ["Total Amount", f"R{total_amount:,.2f}"],
-        ["High Risk Transactions", str(high_risk_count)],
-        ["AI-Detected Anomalies", str(anomaly_count)]
+        ["Total Transactions", str(stats['total'])],
+        ["Total Income", f"R{stats['total_income']:,.2f}"],
+        ["Total Expenses", f"R{stats['total_expense']:,.2f}"],
+        ["Net Profit/Loss", f"R{stats['total_income'] - stats['total_expense']:,.2f}"],
+        ["High Risk Transactions", str(stats['high_risk'])],
+        ["AI-Detected Anomalies", str(stats['anomalies'])],
+        ["Year-over-Year Growth", f"{stats['yoy_growth']}%"],
+        ["High Risk % of Portfolio", f"{stats['high_risk_percentage']}%"]
     ]
     
-    summary_table = Table(summary_data)
+    summary_table = Table(summary_data, colWidths=[200, 150])
     summary_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 14),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+        ('FONTSIZE', (0, 0), (-1, 0), 12),
         ('GRID', (0, 0), (-1, -1), 1, colors.black)
     ]))
     story.append(summary_table)
     story.append(Spacer(1, 20))
     
-    # Transactions table
-    story.append(Paragraph("Detailed Transaction Report", styles['Heading2']))
+    # Year-over-Year Comparison
+    story.append(Paragraph("Year-over-Year Performance", styles['Heading2']))
+    yoy_data = [
+        ["Period", "Total Amount"],
+        [f"{datetime.utcnow().year - 1}", f"R{stats['prev_year_total']:,.2f}"],
+        [f"{datetime.utcnow().year}", f"R{stats['current_year_total']:,.2f}"],
+        ["Growth", f"{stats['yoy_growth']}%"]
+    ]
+    yoy_table = Table(yoy_data, colWidths=[150, 150])
+    yoy_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black)
+    ]))
+    story.append(yoy_table)
+    story.append(Spacer(1, 20))
+    
+    # Future Predictions
+    story.append(Paragraph("Financial Forecast", styles['Heading2']))
+    prediction_data = [
+        ["Prediction Period", "Projected Amount"],
+        ["Next Month", f"R{stats['next_month_prediction']:,.2f}"],
+        ["Next 3 Months", f"R{stats['next_3_months_prediction']:,.2f}"]
+    ]
+    prediction_table = Table(prediction_data, colWidths=[150, 150])
+    prediction_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black)
+    ]))
+    story.append(prediction_table)
+    story.append(Spacer(1, 20))
+    
+    # Risk Distribution
+    story.append(Paragraph("Risk Distribution", styles['Heading2']))
+    risk_data = [
+        ["Risk Level", "Percentage"],
+        ["High Risk", f"{stats['high_risk_percentage']}%"],
+        ["Low Risk", f"{stats['low_risk_percentage']}%"]
+    ]
+    risk_table = Table(risk_data, colWidths=[150, 150])
+    risk_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black)
+    ]))
+    story.append(risk_table)
+    story.append(Spacer(1, 20))
+    
+    # Detailed Transactions
+    story.append(PageBreak())
+    story.append(Paragraph("Detailed Transaction Log", styles['Heading1']))
     story.append(Spacer(1, 10))
     
-    table_data = [["Date", "Vendor", "Amount (R)", "Risk Score", "AI Anomaly"]]
-    for t in transactions[:100]:  # Limit to 100 for PDF
+    table_data = [["Date", "Vendor", "Amount (R)", "Type", "Category", "Risk Score", "Anomaly"]]
+    for t in transactions[:200]:  # Limit to 200 for PDF
         table_data.append([
             t.date.strftime('%Y-%m-%d') if t.date else "N/A",
             t.vendor,
             f"{t.amount:,.2f}",
+            t.transaction_type.upper(),
+            t.category,
             str(t.risk_score),
             "⚠️ Yes" if t.is_anomaly else "✓ No"
         ])
     
-    transaction_table = Table(table_data)
+    transaction_table = Table(table_data, repeatRows=1)
     transaction_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 12),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-        ('GRID', (0, 0), (-1, -1), 1, colors.black),
-        ('FONTSIZE', (0, 1), (-1, -1), 9),
+        ('FONTSIZE', (0, 0), (-1, 0), 10),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+        ('FONTSIZE', (0, 1), (-1, -1), 8),
     ]))
     story.append(transaction_table)
     
     # Build PDF
     doc.build(story)
     
-    # Return PDF as downloadable
     with open(report_path, "rb") as f:
         pdf_content = f.read()
     
@@ -371,7 +491,9 @@ async def generate_report(username: str = Header(None), db: Session = Depends(ge
     return Response(
         content=pdf_content,
         media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename=ledgerlens_report_{user.company_name}_{datetime.utcnow().strftime('%Y%m%d')}.pdf"}
+        headers={"Content-Disposition": f"attachment; filename=LedgerLens_Report_{user.company_name}_{datetime.utcnow().strftime('%Y%m%d')}.pdf"}
     )
 
-from fastapi.responses import Response
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

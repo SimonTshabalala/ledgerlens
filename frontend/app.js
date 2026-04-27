@@ -1,6 +1,7 @@
 const API_URL = "https://ledgerlens-mdv3.onrender.com";
 let authToken = null;
 let chartInstance = null;
+let pieChartInstance = null;
 let currentUsername = null;
 
 // ==================== PAGE NAVIGATION ====================
@@ -106,6 +107,9 @@ function logout() {
     document.getElementById('landingPage').style.display = 'block';
     document.getElementById('loginUsername').value = '';
     document.getElementById('loginPassword').value = '';
+    
+    if (pieChartInstance) pieChartInstance.destroy();
+    if (chartInstance) chartInstance.destroy();
 }
 
 function getHeaders() {
@@ -160,10 +164,40 @@ async function loadStats() {
         const stats = await response.json();
         
         document.getElementById('stats').innerHTML = `
-            <div class="card"><h3>Total Transactions</h3><p>${stats.total || 0}</p></div>
-            <div class="card"><h3>High Risk</h3><p>${stats.high_risk || 0}</p></div>
-            <div class="card"><h3>AI Anomalies</h3><p>${stats.anomalies || 0}</p></div>
-            <div class="card"><h3>Total Volume</h3><p>R${(stats.total_amount || 0).toLocaleString()}</p></div>
+            <div class="card">
+                <h3>Total Transactions</h3>
+                <p>${stats.total || 0}</p>
+            </div>
+            <div class="card">
+                <h3>Total Income</h3>
+                <p style="color:#2e7d32;">R${(stats.total_income || 0).toLocaleString()}</p>
+            </div>
+            <div class="card">
+                <h3>Total Expenses</h3>
+                <p style="color:#c62828;">R${(stats.total_expense || 0).toLocaleString()}</p>
+            </div>
+            <div class="card">
+                <h3>Net Profit/Loss</h3>
+                <p style="color:${(stats.total_income - stats.total_expense) >= 0 ? '#2e7d32' : '#c62828'}">
+                    R${(stats.total_income - stats.total_expense).toLocaleString()}
+                </p>
+            </div>
+            <div class="card">
+                <h3>High Risk</h3>
+                <p>${stats.high_risk || 0}</p>
+            </div>
+            <div class="card">
+                <h3>AI Anomalies</h3>
+                <p>${stats.anomalies || 0}</p>
+            </div>
+            <div class="card">
+                <h3>YoY Growth</h3>
+                <p style="color:${stats.yoy_growth >= 0 ? '#2e7d32' : '#c62828'}">${stats.yoy_growth || 0}%</p>
+            </div>
+            <div class="card">
+                <h3>Next Month Forecast</h3>
+                <p>R${(stats.next_month_prediction || 0).toLocaleString()}</p>
+            </div>
         `;
     } catch (error) {
         console.error("Stats error:", error);
@@ -174,7 +208,7 @@ async function loadTransactions() {
     try {
         const response = await fetch(`${API_URL}/api/transactions`, { headers: getHeaders() });
         const data = await response.json();
-        renderDashboard(data);
+        renderDashboard(data, 'all');
     } catch (error) {
         console.error("Load transactions error:", error);
     }
@@ -184,13 +218,44 @@ async function loadHighRisk() {
     try {
         const response = await fetch(`${API_URL}/api/high-risk`, { headers: getHeaders() });
         const data = await response.json();
-        renderDashboard(data);
+        renderDashboard(data, 'high-risk');
+        
+        // Also load stats for pie chart
+        const statsResponse = await fetch(`${API_URL}/api/stats`, { headers: getHeaders() });
+        const stats = await statsResponse.json();
+        updatePieChart(stats);
     } catch (error) {
         console.error("Load high risk error:", error);
     }
 }
 
-// ==================== REPORT GENERATION ====================
+function updatePieChart(stats) {
+    const ctx = document.getElementById('pieChartCanvas').getContext('2d');
+    if (pieChartInstance) pieChartInstance.destroy();
+    
+    pieChartInstance = new Chart(ctx, {
+        type: 'pie',
+        data: {
+            labels: ['High Risk Transactions', 'Low Risk Transactions'],
+            datasets: [{
+                data: [stats.high_risk_percentage || 0, stats.low_risk_percentage || 0],
+                backgroundColor: ['#c62828', '#2e7d32'],
+                borderWidth: 2
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: { position: 'bottom' },
+                title: {
+                    display: true,
+                    text: 'Risk Distribution (% of Total Value)'
+                }
+            }
+        }
+    });
+}
+
 async function generateReport() {
     try {
         const response = await fetch(`${API_URL}/api/generate-report`, {
@@ -203,14 +268,14 @@ async function generateReport() {
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `ledgerlens_report_${new Date().toISOString().split('T')[0]}.pdf`;
+            a.download = `LedgerLens_Report_${new Date().toISOString().split('T')[0]}.pdf`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
             window.URL.revokeObjectURL(url);
-            alert("Report generated successfully!");
+            alert("✅ Report generated successfully!");
         } else {
-            alert("No transactions found. Please upload data first.");
+            alert("❌ No transactions found. Please upload data first.");
         }
     } catch (error) {
         console.error("Report error:", error);
@@ -218,13 +283,14 @@ async function generateReport() {
     }
 }
 
-function renderDashboard(data) {
+function renderDashboard(data, viewType) {
     if (!data || data.length === 0) {
         document.getElementById('results').innerHTML = '<p>No transactions found. Upload a CSV file to get started.</p>';
+        if (chartInstance) chartInstance.destroy();
         return;
     }
     
-    // Update chart
+    // Vendor spend chart
     const vendors = {};
     data.forEach(t => {
         vendors[t.vendor] = (vendors[t.vendor] || 0) + t.amount;
@@ -232,6 +298,7 @@ function renderDashboard(data) {
     
     const ctx = document.getElementById('chartCanvas').getContext('2d');
     if (chartInstance) chartInstance.destroy();
+    
     chartInstance = new Chart(ctx, {
         type: 'bar',
         data: {
@@ -244,13 +311,19 @@ function renderDashboard(data) {
         },
         options: {
             responsive: true,
-            maintainAspectRatio: true
+            maintainAspectRatio: true,
+            plugins: {
+                title: {
+                    display: true,
+                    text: viewType === 'high-risk' ? 'High Risk Transactions by Vendor' : 'All Transactions by Vendor'
+                }
+            }
         }
     });
     
     // Build table
     let html = '<table class="data-table"><thead><tr>';
-    const headers = ['Date', 'Vendor', 'Amount', 'Risk Score', 'AI Anomaly'];
+    const headers = ['Date', 'Vendor', 'Amount', 'Type', 'Category', 'Risk Score', 'AI Anomaly'];
     headers.forEach(h => html += `<th>${h}</th>`);
     html += '</tr></thead><tbody>';
     
@@ -260,6 +333,8 @@ function renderDashboard(data) {
             <td>${new Date(row.date).toLocaleDateString()}</td>
             <td>${row.vendor}</td>
             <td>R${row.amount.toLocaleString()}</td>
+            <td>${row.transaction_type === 'income' ? '💰 INCOME' : '💸 EXPENSE'}</td>
+            <td>${row.category}</td>
             <td>${row.risk_score}</td>
             <td>${row.is_anomaly ? '⚠️ ANOMALY' : '✓ Normal'}</td>
         </tr>`;
@@ -268,3 +343,16 @@ function renderDashboard(data) {
     html += '</tbody></table>';
     document.getElementById('results').innerHTML = html;
 }
+
+// Add pie chart canvas to HTML
+document.addEventListener('DOMContentLoaded', function() {
+    // Add pie chart canvas to stats area
+    const statsDiv = document.getElementById('stats');
+    const pieCanvas = document.createElement('canvas');
+    pieCanvas.id = 'pieChartCanvas';
+    pieCanvas.style.maxWidth = '400px';
+    pieCanvas.style.maxHeight = '300px';
+    pieCanvas.style.margin = '20px auto';
+    pieCanvas.style.display = 'block';
+    statsDiv.parentNode.insertBefore(pieCanvas, statsDiv.nextSibling);
+});
