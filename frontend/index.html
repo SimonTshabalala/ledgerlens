@@ -2,16 +2,18 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>LedgerLens - AI Financial Anomaly Detection</title>
     <link rel="stylesheet" href="styles.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
+    <!-- Mobile Menu Toggle -->
+    <button class="menu-toggle" onclick="toggleSidebar()">☰ Menu</button>
+
     <!-- Landing Page -->
     <div id="landingPage">
-        <!-- Navigation -->
         <nav class="navbar">
             <div class="nav-container">
                 <div class="logo">
@@ -21,21 +23,20 @@
                 <div class="nav-links">
                     <a href="#features">Features</a>
                     <a href="#pricing">Pricing</a>
-                    <a href="#about">About</a>
                     <button class="btn-login" onclick="showLogin()">Login</button>
                     <button class="btn-signup" onclick="showRegister()">Sign Up</button>
                 </div>
             </div>
         </nav>
 
-        <!-- Hero Section -->
         <section class="hero">
             <div class="hero-container">
                 <div class="hero-content">
                     <h1 class="hero-title">AI-Powered Financial <span class="gradient-text">Anomaly Detection</span></h1>
-                    <p class="hero-subtitle">LedgerLens helps businesses detect suspicious financial activity before it becomes a problem. Using advanced AI and machine learning, we analyze transaction patterns, flag anomalies, and provide actionable insights.</p>
+                    <p class="hero-subtitle">LedgerLens helps businesses detect suspicious financial activity before it becomes a problem.</p>
                     <div class="hero-buttons">
                         <button class="btn-primary" onclick="showRegister()">Get Started Free</button>
+                        <button class="btn-secondary" onclick="scrollToFeatures()">Learn More</button>
                     </div>
                 </div>
                 <div class="hero-image">
@@ -43,9 +44,9 @@
                         <div class="preview-card">
                             <div class="preview-header">🔍 LedgerLens Dashboard</div>
                             <div class="preview-stats">
-                                <div>📊 1,247 Transactions</div>
-                                <div>⚠️ 23 High Risk</div>
-                                <div>🤖 12 Anomalies</div>
+                                <div>📊 Real-time Analytics</div>
+                                <div>⚠️ AI Fraud Detection</div>
+                                <div>📑 Audit Reports</div>
                             </div>
                         </div>
                     </div>
@@ -53,49 +54,37 @@
             </div>
         </section>
 
-        <!-- Features Section -->
         <section id="features" class="features">
             <div class="container">
-                <h2 class="section-title">Powerful Features for <span class="gradient-text">Financial Intelligence</span></h2>
+                <h2 class="section-title">Powerful Features</h2>
                 <div class="features-grid">
                     <div class="feature-card">
                         <div class="feature-icon">🚨</div>
                         <h3>Real-time Detection</h3>
-                        <p>Instant anomaly detection on every transaction as it happens.</p>
+                        <p>Instant anomaly detection on every transaction.</p>
                     </div>
                     <div class="feature-card">
                         <div class="feature-icon">📊</div>
                         <h3>Interactive Dashboards</h3>
-                        <p>Beautiful visualizations of your financial data.</p>
+                        <p>Beautiful visualizations of financial data.</p>
                     </div>
                     <div class="feature-card">
                         <div class="feature-icon">🔒</div>
                         <h3>Bank-grade Security</h3>
-                        <p>Your data is encrypted and protected at all times.</p>
+                        <p>Your data is encrypted and protected.</p>
                     </div>
                     <div class="feature-card">
                         <div class="feature-icon">📑</div>
                         <h3>Audit Reports</h3>
-                        <p>Generate professional PDF reports for compliance.</p>
-                    </div>
-                    <div class="feature-card">
-                        <div class="feature-icon">🤖</div>
-                        <h3>AI-Powered</h3>
-                        <p>Machine learning algorithms detect sophisticated fraud.</p>
-                    </div>
-                    <div class="feature-card">
-                        <div class="feature-icon">🏢</div>
-                        <h3>Multi-tenant</h3>
-                        <p>Secure data isolation for multiple companies.</p>
+                        <p>Generate professional PDF reports.</p>
                     </div>
                 </div>
             </div>
         </section>
 
-        <!-- Pricing Section -->
         <section id="pricing" class="pricing">
             <div class="container">
-                <h2 class="section-title">Simple, Transparent <span class="gradient-text">Pricing</span></h2>
+                <h2 class="section-title">Simple Pricing</h2>
                 <div class="pricing-grid">
                     <div class="pricing-card">
                         <h3>Starter</h3>
@@ -104,7 +93,6 @@
                             <li>✓ Up to 1,000 transactions</li>
                             <li>✓ Basic analytics</li>
                             <li>✓ Email support</li>
-                            <li>✓ 30-day history</li>
                         </ul>
                         <button class="btn-pricing" onclick="showRegister()">Get Started</button>
                     </div>
@@ -115,23 +103,9 @@
                         <ul>
                             <li>✓ Up to 10,000 transactions</li>
                             <li>✓ Advanced AI detection</li>
-                            <li>✓ Priority support</li>
-                            <li>✓ API access</li>
                             <li>✓ PDF reports</li>
                         </ul>
                         <button class="btn-pricing" onclick="showRegister()">Get Started</button>
-                    </div>
-                    <div class="pricing-card">
-                        <h3>Enterprise</h3>
-                        <div class="price">Custom</div>
-                        <ul>
-                            <li>✓ Unlimited transactions</li>
-                            <li>✓ Custom AI models</li>
-                            <li>✓ Dedicated support</li>
-                            <li>✓ SLA guarantee</li>
-                            <li>✓ On-premise option</li>
-                        </ul>
-                        <button class="btn-pricing" onclick="showRegister()">Contact Sales</button>
                     </div>
                 </div>
             </div>
@@ -141,14 +115,14 @@
         <div id="authModal" class="modal" style="display:none;">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h2 id="authTitle">Login to LedgerLens</h2>
+                    <h2 id="authTitle">Login</h2>
                     <button class="close-btn" onclick="closeAuthModal()">&times;</button>
                 </div>
                 <div id="loginForm">
                     <input type="text" id="loginUsername" placeholder="Username">
                     <input type="password" id="loginPassword" placeholder="Password">
                     <button onclick="login()">Login</button>
-                    <p class="auth-switch">Don't have an account? <a href="#" onclick="showRegister()">Create one</a></p>
+                    <p>Don't have an account? <a href="#" onclick="showRegister()">Register</a></p>
                 </div>
                 <div id="registerForm" style="display:none;">
                     <input type="text" id="regUsername" placeholder="Username">
@@ -156,16 +130,16 @@
                     <input type="password" id="regPassword" placeholder="Password">
                     <input type="text" id="regCompany" placeholder="Company Name">
                     <button onclick="register()">Sign Up</button>
-                    <p class="auth-switch">Already have an account? <a href="#" onclick="showLogin()">Login</a></p>
+                    <p>Already have an account? <a href="#" onclick="showLogin()">Login</a></p>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Dashboard (Hidden initially) -->
+    <!-- Dashboard -->
     <div id="dashboard" style="display:none;">
         <div class="layout">
-            <div class="sidebar">
+            <div class="sidebar" id="sidebar">
                 <div class="sidebar-logo">🔍 LedgerLens</div>
                 <div class="user-info" id="userInfo"></div>
                 <button onclick="loadTransactions()">📋 Transactions</button>
@@ -178,12 +152,11 @@
             <div class="main">
                 <div class="header">
                     <h1>Financial Intelligence Dashboard</h1>
-                    <p>AI-powered anomaly detection for your transactions</p>
                 </div>
                 
                 <div id="uploadSection" style="display:none;" class="upload-section">
                     <h3>📁 Upload Transaction Data</h3>
-                    <p>CSV file should have columns: date, amount, vendor</p>
+                    <p>CSV file should have: date, amount, vendor</p>
                     <input type="file" id="csvFile" accept=".csv">
                     <button onclick="uploadCSV()">🤖 Analyze with AI</button>
                 </div>
@@ -196,5 +169,25 @@
     </div>
 
     <script src="app.js"></script>
+    <script>
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('open');
+        }
+        
+        function scrollToFeatures() {
+            document.getElementById('features').scrollIntoView({ behavior: 'smooth' });
+        }
+        
+        // Close sidebar when clicking outside on mobile
+        document.addEventListener('click', function(event) {
+            const sidebar = document.getElementById('sidebar');
+            const menuBtn = document.querySelector('.menu-toggle');
+            if (window.innerWidth <= 768 && sidebar.classList.contains('open')) {
+                if (!sidebar.contains(event.target) && !menuBtn.contains(event.target)) {
+                    sidebar.classList.remove('open');
+                }
+            }
+        });
+    </script>
 </body>
 </html>
