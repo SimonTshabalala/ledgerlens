@@ -1,7 +1,7 @@
-from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, status
+from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, status, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean, func
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 import pandas as pd
@@ -11,6 +11,13 @@ from sklearn.ensemble import IsolationForest
 from datetime import datetime, timedelta
 import hashlib
 import os
+import json
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter, A4
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.pdfgen import canvas
 
 # ==================== DATABASE SETUP ====================
 DB_PATH = "/tmp/ledgerlens.db"
@@ -47,19 +54,12 @@ class Transaction(Base):
 # Create tables
 Base.metadata.create_all(bind=engine)
 
-# ==================== SIMPLE AUTH (No bcrypt issues) ====================
+# ==================== AUTH SETUP ====================
 def get_password_hash(password):
-    """Simple SHA256 hashing for passwords - avoids bcrypt issues"""
     return hashlib.sha256(password.encode()).hexdigest()
 
 def verify_password(plain_password, hashed_password):
-    """Verify password against hash"""
     return get_password_hash(plain_password) == hashed_password
-
-def create_access_token(data: dict):
-    """Simple token creation (for demo)"""
-    # For production, use JWT. For now, return simple dict
-    return data.get("sub", "")
 
 def get_db():
     db = SessionLocal()
@@ -68,10 +68,14 @@ def get_db():
     finally:
         db.close()
 
+def get_current_user(username: str = None, db: Session = Depends(get_db)):
+    if not username:
+        return None
+    return db.query(User).filter(User.username == username).first()
+
 # ==================== FASTAPI APP ====================
 app = FastAPI(title="LedgerLens API")
 
-# CORS - Allow all origins
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -80,21 +84,43 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ==================== LANDING PAGE CONTENT ====================
+LANDING_CONTENT = {
+    "company": "LedgerLens",
+    "tagline": "AI-Powered Financial Anomaly Detection for Modern Businesses",
+    "description": "LedgerLens helps businesses detect suspicious financial activity before it becomes a problem. Using advanced AI and machine learning, we analyze transaction patterns, flag anomalies, and provide actionable insights.",
+    "features": [
+        "🚨 Real-time anomaly detection",
+        "📊 Interactive financial dashboards",
+        "🔒 Bank-grade security",
+        "📑 Audit-ready reports",
+        "🤖 AI-powered fraud detection",
+        "🏢 Multi-tenant architecture"
+    ],
+    "pricing": [
+        {"plan": "Starter", "price": "R999/month", "features": ["Up to 1,000 transactions", "Basic analytics", "Email support"]},
+        {"plan": "Professional", "price": "R2,499/month", "features": ["Up to 10,000 transactions", "Advanced AI", "Priority support", "API access"]},
+        {"plan": "Enterprise", "price": "Custom", "features": ["Unlimited transactions", "Custom AI models", "Dedicated support", "SLA guarantee"]}
+    ]
+}
+
 # ==================== HEALTH CHECK ====================
 @app.get("/")
 def root():
-    return {"message": "LedgerLens API is running", "version": "2.0", "status": "healthy"}
+    return LANDING_CONTENT
+
+@app.get("/api/health")
+def health():
+    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
 
 # ==================== AUTH ENDPOINTS ====================
 @app.post("/api/register")
 def register(username: str, email: str, password: str, company_name: str = "", db: Session = Depends(get_db)):
     try:
-        # Check if user exists
         existing_user = db.query(User).filter((User.username == username) | (User.email == email)).first()
         if existing_user:
             raise HTTPException(status_code=400, detail="Username or email already registered")
         
-        # Create new user
         hashed_password = get_password_hash(password)
         user = User(
             username=username, 
@@ -108,38 +134,20 @@ def register(username: str, email: str, password: str, company_name: str = "", d
         return {"message": "User created successfully", "user_id": user.id, "username": user.username}
     except Exception as e:
         db.rollback()
-        print(f"Registration error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/login")
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == form_data.username).first()
-    if not user:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    
-    if not verify_password(form_data.password, user.hashed_password):
+    if not user or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
     return {
-        "access_token": user.username, 
-        "token_type": "bearer", 
-        "user_id": user.id, 
+        "access_token": user.username,
+        "token_type": "bearer",
+        "user_id": user.id,
         "company": user.company_name,
         "username": user.username
-    }
-
-@app.get("/api/me")
-def get_me(username: str = None, db: Session = Depends(get_db)):
-    if not username:
-        return {"error": "Not authenticated"}
-    user = db.query(User).filter(User.username == username).first()
-    if not user:
-        return {"error": "User not found"}
-    return {
-        "id": user.id, 
-        "username": user.username, 
-        "email": user.email, 
-        "company": user.company_name
     }
 
 # ==================== ANOMALY DETECTION ====================
@@ -171,24 +179,28 @@ def calculate_risk_score(row):
         risk += 10
     return min(risk, 100)
 
-# ==================== CSV UPLOAD ====================
+# ==================== CSV UPLOAD (User-Specific) ====================
 @app.post("/api/upload")
-async def upload_csv(file: UploadFile = File(...), username: str = None, db: Session = Depends(get_db)):
+async def upload_csv(
+    file: UploadFile = File(...),
+    username: str = Header(None),
+    db: Session = Depends(get_db)
+):
     try:
-        # For now, use first user or create default
-        user = db.query(User).first()
+        user = get_current_user(username, db)
         if not user:
-            # Create default user if none exists
-            default_user = User(
-                username="demo",
-                email="demo@demo.com",
-                hashed_password=get_password_hash("demo123"),
-                company_name="Demo Company"
-            )
-            db.add(default_user)
-            db.commit()
-            db.refresh(default_user)
-            user = default_user
+            # Create demo user for testing
+            user = db.query(User).first()
+            if not user:
+                user = User(
+                    username="demo",
+                    email="demo@demo.com",
+                    hashed_password=get_password_hash("demo123"),
+                    company_name="Demo Company"
+                )
+                db.add(user)
+                db.commit()
+                db.refresh(user)
         
         contents = await file.read()
         df = pd.read_csv(StringIO(contents.decode("utf-8")))
@@ -204,6 +216,10 @@ async def upload_csv(file: UploadFile = File(...), username: str = None, db: Ses
         df = detect_anomalies(df)
         df['risk_score'] = df.apply(calculate_risk_score, axis=1)
         
+        # Clear user's old transactions
+        db.query(Transaction).filter(Transaction.user_id == user.id).delete()
+        
+        # Add new transactions
         for _, row in df.iterrows():
             transaction = Transaction(
                 user_id=user.id,
@@ -225,36 +241,31 @@ async def upload_csv(file: UploadFile = File(...), username: str = None, db: Ses
         }
     except Exception as e:
         db.rollback()
-        print(f"Upload error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# ==================== DATA RETRIEVAL ====================
+# ==================== DATA RETRIEVAL (User-Specific) ====================
 @app.get("/api/transactions")
-def get_transactions(db: Session = Depends(get_db)):
-    transactions = db.query(Transaction).all()
+def get_transactions(username: str = Header(None), db: Session = Depends(get_db)):
+    user = get_current_user(username, db)
+    if not user:
+        return []
+    transactions = db.query(Transaction).filter(Transaction.user_id == user.id).all()
     return [{
         "id": t.id, 
-        "date": t.date, 
+        "date": t.date.isoformat() if t.date else None,
         "vendor": t.vendor, 
         "amount": t.amount, 
         "risk_score": t.risk_score, 
         "is_anomaly": t.is_anomaly
     } for t in transactions]
 
-@app.get("/api/high-risk")
-def get_high_risk(db: Session = Depends(get_db)):
-    transactions = db.query(Transaction).filter(Transaction.risk_score >= 40).all()
-    return [{
-        "id": t.id, 
-        "date": t.date, 
-        "vendor": t.vendor, 
-        "amount": t.amount, 
-        "risk_score": t.risk_score
-    } for t in transactions]
-
 @app.get("/api/stats")
-def get_stats(db: Session = Depends(get_db)):
-    transactions = db.query(Transaction).all()
+def get_stats(username: str = Header(None), db: Session = Depends(get_db)):
+    user = get_current_user(username, db)
+    if not user:
+        return {"total": 0, "high_risk": 0, "anomalies": 0, "total_amount": 0}
+    
+    transactions = db.query(Transaction).filter(Transaction.user_id == user.id).all()
     if not transactions:
         return {"total": 0, "high_risk": 0, "anomalies": 0, "total_amount": 0}
     
@@ -270,6 +281,97 @@ def get_stats(db: Session = Depends(get_db)):
         "total_amount": total_amount
     }
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+# ==================== REPORT GENERATION ====================
+@app.post("/api/generate-report")
+async def generate_report(username: str = Header(None), db: Session = Depends(get_db)):
+    user = get_current_user(username, db)
+    if not user:
+        raise HTTPException(status_code=401, detail="User not authenticated")
+    
+    transactions = db.query(Transaction).filter(Transaction.user_id == user.id).all()
+    if not transactions:
+        raise HTTPException(status_code=404, detail="No transactions found")
+    
+    # Create PDF report
+    report_path = f"/tmp/report_{user.id}_{datetime.utcnow().timestamp()}.pdf"
+    doc = SimpleDocTemplate(report_path, pagesize=A4)
+    styles = getSampleStyleSheet()
+    story = []
+    
+    # Title
+    title_style = ParagraphStyle('CustomTitle', parent=styles['Heading1'], fontSize=24, textColor=colors.HexColor('#667eea'))
+    story.append(Paragraph(f"LedgerLens Financial Report", title_style))
+    story.append(Paragraph(f"<b>Company:</b> {user.company_name}", styles['Normal']))
+    story.append(Paragraph(f"<b>Generated:</b> {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
+    story.append(Spacer(1, 20))
+    
+    # Summary
+    total_amount = sum(t.amount for t in transactions)
+    high_risk_count = sum(1 for t in transactions if t.risk_score >= 40)
+    anomaly_count = sum(1 for t in transactions if t.is_anomaly)
+    
+    summary_data = [
+        ["Metric", "Value"],
+        ["Total Transactions", str(len(transactions))],
+        ["Total Amount", f"R{total_amount:,.2f}"],
+        ["High Risk Transactions", str(high_risk_count)],
+        ["AI-Detected Anomalies", str(anomaly_count)]
+    ]
+    
+    summary_table = Table(summary_data)
+    summary_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 14),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black)
+    ]))
+    story.append(summary_table)
+    story.append(Spacer(1, 20))
+    
+    # Transactions table
+    story.append(Paragraph("Detailed Transaction Report", styles['Heading2']))
+    story.append(Spacer(1, 10))
+    
+    table_data = [["Date", "Vendor", "Amount (R)", "Risk Score", "AI Anomaly"]]
+    for t in transactions[:100]:  # Limit to 100 for PDF
+        table_data.append([
+            t.date.strftime('%Y-%m-%d') if t.date else "N/A",
+            t.vendor,
+            f"{t.amount:,.2f}",
+            str(t.risk_score),
+            "⚠️ Yes" if t.is_anomaly else "✓ No"
+        ])
+    
+    transaction_table = Table(table_data)
+    transaction_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 12),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('FONTSIZE', (0, 1), (-1, -1), 9),
+    ]))
+    story.append(transaction_table)
+    
+    # Build PDF
+    doc.build(story)
+    
+    # Return PDF as downloadable
+    with open(report_path, "rb") as f:
+        pdf_content = f.read()
+    
+    os.remove(report_path)
+    
+    return Response(
+        content=pdf_content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=ledgerlens_report_{user.company_name}_{datetime.utcnow().strftime('%Y%m%d')}.pdf"}
+    )
+
+from fastapi.responses import Response

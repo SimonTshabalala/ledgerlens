@@ -1,28 +1,22 @@
 const API_URL = "https://ledgerlens-mdv3.onrender.com";
 let authToken = null;
 let chartInstance = null;
+let currentUsername = null;
 
-// Make functions global
-window.showLogin = showLogin;
-window.showRegister = showRegister;
-window.closeAuthModal = closeAuthModal;
-window.register = register;
-window.login = login;
-window.logout = logout;
-window.showUpload = showUpload;
-window.uploadCSV = uploadCSV;
-window.loadTransactions = loadTransactions;
-window.loadHighRisk = loadHighRisk;
+// ==================== PAGE NAVIGATION ====================
+function scrollToFeatures() {
+    document.getElementById('features').scrollIntoView({ behavior: 'smooth' });
+}
 
 function showLogin() {
-    document.getElementById('authTitle').innerText = 'Login';
+    document.getElementById('authTitle').innerText = 'Login to LedgerLens';
     document.getElementById('loginForm').style.display = 'block';
     document.getElementById('registerForm').style.display = 'none';
     document.getElementById('authModal').style.display = 'flex';
 }
 
 function showRegister() {
-    document.getElementById('authTitle').innerText = 'Register';
+    document.getElementById('authTitle').innerText = 'Create Your Account';
     document.getElementById('loginForm').style.display = 'none';
     document.getElementById('registerForm').style.display = 'block';
     document.getElementById('authModal').style.display = 'flex';
@@ -32,9 +26,8 @@ function closeAuthModal() {
     document.getElementById('authModal').style.display = 'none';
 }
 
+// ==================== AUTHENTICATION ====================
 async function register() {
-    console.log("Register function called");
-    
     const username = document.getElementById('regUsername').value;
     const email = document.getElementById('regEmail').value;
     const password = document.getElementById('regPassword').value;
@@ -45,41 +38,29 @@ async function register() {
         return;
     }
     
-    const url = `${API_URL}/api/register?username=${encodeURIComponent(username)}&email=${encodeURIComponent(email)}&password=${encodeURIComponent(password)}&company_name=${encodeURIComponent(company)}`;
-    console.log("Calling:", url);
-    
     try {
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: {
-                'Accept': 'application/json'
-            }
+        const response = await fetch(`${API_URL}/api/register?username=${encodeURIComponent(username)}&email=${encodeURIComponent(email)}&password=${encodeURIComponent(password)}&company_name=${encodeURIComponent(company)}`, {
+            method: 'POST'
         });
-        
-        console.log("Response status:", response.status);
-        const data = await response.json();
-        console.log("Response data:", data);
         
         if (response.ok) {
             alert('Registration successful! Please login.');
             showLogin();
-            // Clear registration form
             document.getElementById('regUsername').value = '';
             document.getElementById('regEmail').value = '';
             document.getElementById('regPassword').value = '';
             document.getElementById('regCompany').value = '';
         } else {
-            alert('Registration failed: ' + (data.detail || "Unknown error"));
+            const error = await response.json();
+            alert('Registration failed: ' + (error.detail || "Unknown error"));
         }
     } catch (error) {
         console.error("Registration error:", error);
-        alert("Cannot connect to backend. Please make sure the server is running.");
+        alert("Cannot connect to server");
     }
 }
 
 async function login() {
-    console.log("Login function called");
-    
     const username = document.getElementById('loginUsername').value;
     const password = document.getElementById('loginPassword').value;
     
@@ -95,48 +76,45 @@ async function login() {
     try {
         const response = await fetch(`${API_URL}/api/login`, {
             method: 'POST',
-            headers: { 
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'Accept': 'application/json'
-            },
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             body: formData
         });
         
-        console.log("Login response:", response.status);
-        
         if (response.ok) {
             const data = await response.json();
-            authToken = data.access_token;
+            authToken = data.username;
+            currentUsername = data.username;
             document.getElementById('authModal').style.display = 'none';
+            document.getElementById('landingPage').style.display = 'none';
             document.getElementById('dashboard').style.display = 'block';
-            document.getElementById('userInfo').innerHTML = `<strong>${data.company || username}</strong><br>Welcome!`;
+            document.getElementById('userInfo').innerHTML = `<strong>${data.company}</strong><br>Welcome, ${data.username}!`;
             loadStats();
             loadTransactions();
         } else {
-            const error = await response.json();
-            alert('Login failed: ' + (error.detail || "Invalid credentials"));
+            alert('Login failed: Invalid credentials');
         }
     } catch (error) {
         console.error("Login error:", error);
-        alert("Cannot connect to backend. Please make sure the server is running.");
+        alert("Cannot connect to server");
     }
 }
 
 function logout() {
     authToken = null;
+    currentUsername = null;
     document.getElementById('dashboard').style.display = 'none';
+    document.getElementById('landingPage').style.display = 'block';
     document.getElementById('loginUsername').value = '';
     document.getElementById('loginPassword').value = '';
-    showLogin();
 }
 
 function getHeaders() {
     return {
-        'Authorization': `Bearer ${authToken}`,
-        'Content-Type': 'application/json'
+        'username': currentUsername
     };
 }
 
+// ==================== CSV UPLOAD ====================
 function showUpload() {
     const uploadSection = document.getElementById('uploadSection');
     uploadSection.style.display = uploadSection.style.display === 'none' ? 'block' : 'none';
@@ -155,16 +133,17 @@ async function uploadCSV() {
     try {
         const response = await fetch(`${API_URL}/api/upload`, {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${authToken}` },
+            headers: getHeaders(),
             body: formData
         });
         
         if (response.ok) {
             const data = await response.json();
-            alert(`Upload complete! Found ${data.anomalies} anomalies out of ${data.total} transactions.`);
+            alert(`✅ Upload complete!\n\n📊 Total: ${data.total} transactions\n🤖 Anomalies found: ${data.anomalies}\n⚠️ High risk: ${data.flagged_count}`);
             loadTransactions();
             loadStats();
             document.getElementById('uploadSection').style.display = 'none';
+            document.getElementById('csvFile').value = '';
         } else {
             alert('Upload failed');
         }
@@ -174,10 +153,10 @@ async function uploadCSV() {
     }
 }
 
+// ==================== DATA DISPLAY ====================
 async function loadStats() {
     try {
         const response = await fetch(`${API_URL}/api/stats`, { headers: getHeaders() });
-        if (!response.ok) throw new Error("Failed to load stats");
         const stats = await response.json();
         
         document.getElementById('stats').innerHTML = `
@@ -194,7 +173,6 @@ async function loadStats() {
 async function loadTransactions() {
     try {
         const response = await fetch(`${API_URL}/api/transactions`, { headers: getHeaders() });
-        if (!response.ok) throw new Error("Failed to load transactions");
         const data = await response.json();
         renderDashboard(data);
     } catch (error) {
@@ -205,11 +183,38 @@ async function loadTransactions() {
 async function loadHighRisk() {
     try {
         const response = await fetch(`${API_URL}/api/high-risk`, { headers: getHeaders() });
-        if (!response.ok) throw new Error("Failed to load high risk");
         const data = await response.json();
         renderDashboard(data);
     } catch (error) {
         console.error("Load high risk error:", error);
+    }
+}
+
+// ==================== REPORT GENERATION ====================
+async function generateReport() {
+    try {
+        const response = await fetch(`${API_URL}/api/generate-report`, {
+            method: 'POST',
+            headers: getHeaders()
+        });
+        
+        if (response.ok) {
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `ledgerlens_report_${new Date().toISOString().split('T')[0]}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+            alert("Report generated successfully!");
+        } else {
+            alert("No transactions found. Please upload data first.");
+        }
+    } catch (error) {
+        console.error("Report error:", error);
+        alert("Failed to generate report");
     }
 }
 
@@ -234,7 +239,7 @@ function renderDashboard(data) {
             datasets: [{
                 label: 'Spend per Vendor (R)',
                 data: Object.values(vendors),
-                backgroundColor: 'rgba(54, 162, 235, 0.6)'
+                backgroundColor: 'rgba(102, 126, 234, 0.6)'
             }]
         },
         options: {
@@ -263,9 +268,3 @@ function renderDashboard(data) {
     html += '</tbody></table>';
     document.getElementById('results').innerHTML = html;
 }
-
-// Initialize when page loads
-document.addEventListener('DOMContentLoaded', function() {
-    console.log("Page loaded, showing login");
-    showLogin();
-});
